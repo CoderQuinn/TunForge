@@ -1,8 +1,35 @@
 .DS_Store
+
+# Swift Package Manager
 /.build
 /Packages
-xcuserdata/
-DerivedData/
+/Package.pins
+/Package.resolved
+.swiftpm/
 .swiftpm/configuration/registries.json
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+
+# Xcode
+DerivedData/
+build/
+*.xcworkspace
+*.xcuserstate
+xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# CocoaPods
+Pods/
+
+# Carthage
+Carthage/Build/
+
+# Generated Swift files (codegen, templates)
+*.generated.swift
+*Generated.swift
+
+# Misc
 .netrc
+*.swp
+*.lock
+.swiftlint.yml
+launch.json
