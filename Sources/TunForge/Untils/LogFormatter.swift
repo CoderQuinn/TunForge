@@ -19,11 +19,11 @@ class TunForgeLogFormatter: NSObject, DDLogFormatter {
         let timestamp = dateFormatter.string(from: logMessage.timestamp)
         var logLevel: String
         switch logMessage.flag {
-        case .error: logLevel = "🔴[E]"
-        case .warning: logLevel = "🟠[W]"
-        case .info: logLevel = "🔵[I]"
-        case .debug: logLevel = "🟢[D]"
-        case .verbose: logLevel = "⚪[V]"
+        case .error: logLevel = "[E]"
+        case .warning: logLevel = "[W]"
+        case .info: logLevel = "[I]"
+        case .debug: logLevel = "[D]"
+        case .verbose: logLevel = "[V]"
         default: logLevel = "[?]"
         }
         return "\(timestamp) [Thread:\(logMessage.threadID)] \(logLevel) \(logMessage.message)"

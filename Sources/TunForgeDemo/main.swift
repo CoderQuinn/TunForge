@@ -1,10 +1,10 @@
 import Foundation
 import TunForge
 
-let stack = TSIPStackActor(configuration: .init(redirectHost: "127.0.0.1", redirectPort: 1209))
+let stack = TSIPStackActor(configuration: .init(redirectHost: "127.0.0.1", redirectPort: 1208))
 
 // local tcp server to receive redirected flows
-let localServer = LocalTCPServer(port: 1209)
+let localServer = LocalTCPServer(port: 1208)
 localServer.start()
 
 Task {

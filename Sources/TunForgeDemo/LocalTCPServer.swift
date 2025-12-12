@@ -36,7 +36,7 @@ public final class LocalTCPServer: @unchecked Sendable {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
             if let data = data, !data.isEmpty {
                 let s = String(decoding: data, as: UTF8.self)
-                TunForgeLogger.info("Server received: \(s.trimmingCharacters(in: .newlines))")
+                TunForgeLogger.info("Server received from conn \(conn.endpoint.debugDescription): \(s.trimmingCharacters(in: .newlines))")
             }
             if isComplete || error != nil {
                 conn.cancel()
