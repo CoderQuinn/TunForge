@@ -1,14 +1,12 @@
 //
-//  IPStack.m
+//  TSIPStack.m
 //  TunForge
 //
-//  Single lwIP bridge with optional metrics behavior (no pacing/backpressure).
+//  Created by MagicianQuinn on 2025/12/13.
 //
 
-#import "IPStack.h"
-#import "TCPSocket.h"
-#import "Metrics/IPStackStats.h"
-#import <QuartzCore/QuartzCore.h>
+#import "TSIPStack.h"
+#import "TSTCPSocket.h"
 
 // C bridge functions exposed from Swift in TunForge target
 extern void TFLogInfo(const char *msg);
@@ -23,7 +21,7 @@ extern void TFLogVerbose(const char *msg);
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
-@interface IPStack ()
+@interface TSIPStack ()
 @property (nonatomic, strong) dispatch_queue_t processQueue;
 @property (nonatomic, strong) dispatch_source_t timer;
 @property (nonatomic, assign) struct tcp_pcb *listenPcb;
@@ -34,12 +32,8 @@ extern void TFLogVerbose(const char *msg);
 @property (nonatomic, copy) NSString *configuredGateway;
 @end
 
-@interface IPStackDefaultMetrics : NSObject<IPStackMetricsBehavior>
-@property (nonatomic, strong) IPStackStats *stats;
-@end
-
-@implementation IPStack
-static IPStack *_shared = nil;
+@implementation TSIPStack
+static TSIPStack *_shared = nil;
 
 static err_t packetOutput(struct netif *netif, struct pbuf *p, const ip4_addr_t *ipaddr);
 static err_t tcpAcceptCallback(void *arg, struct tcp_pcb *newpcb, err_t err);
@@ -48,7 +42,7 @@ static err_t tcpAcceptCallback(void *arg, struct tcp_pcb *newpcb, err_t err);
 {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        _shared = [[IPStack alloc] init];
+        _shared = [[TSIPStack alloc] init];
     });
     return _shared;
 }
@@ -61,7 +55,6 @@ static err_t tcpAcceptCallback(void *arg, struct tcp_pcb *newpcb, err_t err);
         self.configuredIP = @"192.18.0.1";
         self.configuredNetmask = @"255.255.255.0";
         self.configuredGateway = @"192.168.0.1";
-        self.behavior = [IPStackDefaultMetrics new];
         [self setup];
     }
     return self;
@@ -104,7 +97,7 @@ static err_t tcpAcceptCallback(void *arg, struct tcp_pcb *newpcb, err_t err);
 
     self.defaultInterface = netif_add(&netif_instance, &ipaddr, &netmask, &gw, NULL, NULL, ip_input);
     if (!self.defaultInterface) {
-        TFLogError("[IPStack] Failed to initialize network interface");
+        TFLogError("[TSIPStack] Failed to initialize network interface");
         return;
     }
     self.defaultInterface->state = (__bridge void *)self;
@@ -115,14 +108,14 @@ static err_t tcpAcceptCallback(void *arg, struct tcp_pcb *newpcb, err_t err);
 
     self.listenPcb = tcp_new();
     if (!self.listenPcb) {
-        TFLogError("[IPStack] Failed to create TCP PCB");
+        TFLogError("[TSIPStack] Failed to create TCP PCB");
         return;
     }
 
     err_t err = tcp_bind(self.listenPcb, IP_ADDR_ANY, 0);
     if (err != ERR_OK) {
         char buf[128];
-        snprintf(buf, sizeof(buf), "[IPStack] Failed to bind TCP PCB: %d", err);
+        snprintf(buf, sizeof(buf), "[TSIPStack] Failed to bind TCP PCB: %d", err);
         TFLogError(buf);
         tcp_close(self.listenPcb);
         self.listenPcb = NULL;
@@ -131,33 +124,42 @@ static err_t tcpAcceptCallback(void *arg, struct tcp_pcb *newpcb, err_t err);
 
     self.listenPcb = tcp_listen_with_backlog(self.listenPcb, TCP_DEFAULT_LISTEN_BACKLOG);
     if (!self.listenPcb) {
-        TFLogError("[IPStack] Failed to set TCP PCB to listen state");
+        TFLogError("[TSIPStack] Failed to set TCP PCB to listen state");
         return;
     }
 
     tcp_arg(self.listenPcb, (__bridge void *)self);
     tcp_accept(self.listenPcb, tcpAcceptCallback);
 
-    TFLogInfo("[IPStack] Network stack initialized successfully");
+    TFLogInfo("[TSIPStack] Network stack initialized successfully");
 }
 
 #pragma mark - Timer
 
-- (void)checkTimeouts { sys_check_timeouts(); }
-- (void)restartTimeouts { sys_restart_timeouts(); }
+- (void)checkTimeouts {
+    sys_check_timeouts();
+}
+
+- (void)restartTimeouts {
+    sys_restart_timeouts();
+}
 
 - (void)suspendTimer
 {
     if (self.timer != nil) {
         dispatch_source_cancel(self.timer);
-        self.timer = nil;
     }
+    self.timer = nil;
 }
 
 - (void)resumeTimer
 {
     self.timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, self.processQueue);
-    uint64_t defaultInterval = 250; // tcp_tmr interval
+#ifdef TCP_TMR_INTERVAL
+    uint64_t defaultInterval = TCP_TMR_INTERVAL; // tcp_tmr interval
+#else
+    uint64_t defaultInterval = 250
+#endif
     dispatch_source_set_timer(self.timer, DISPATCH_TIME_NOW, defaultInterval * NSEC_PER_MSEC, 1 * NSEC_PER_MSEC);
     __weak __typeof(self) weakSelf = self;
     dispatch_source_set_event_handler(self.timer, ^{
@@ -186,16 +188,7 @@ static err_t tcpAcceptCallback(void *arg, struct tcp_pcb *newpcb, err_t err);
         pbuf_free(packetBuffer);
         return;
     }
-    [self onPacketReceivedBytes:(uint32_t)packet.length];
 }
-
-- (void)triggerFlushForDiagnostics
-{
-    // no-op; no batching
-}
-
-- (void)stopStatsReporting { /* no periodic reporter */ }
-- (void)startStatsReportingWithInterval:(NSTimeInterval)intervalSeconds { (void)intervalSeconds; }
 
 #pragma mark - Queue assertions
 
@@ -218,7 +211,7 @@ static err_t tcpAcceptCallback(void *arg, struct tcp_pcb *newpcb, err_t err);
     if (!pcb) { return ERR_ARG; }
     tcp_backlog_accepted(pcb);
     if (self.delegate != nil && [self.delegate respondsToSelector:@selector(didAcceptTCPSocket:)]) {
-        TCPSocket *socket = [[TCPSocket alloc] initWithTCPPcb:pcb queue:self.processQueue];
+        TSTCPSocket *socket = [[TSTCPSocket alloc] initWithTCPPcb:pcb queue:self.processQueue];
         if (!socket) {
             tcp_abort(pcb);
             return ERR_ABRT;
@@ -233,23 +226,20 @@ static err_t tcpAcceptCallback(void *arg, struct tcp_pcb *newpcb, err_t err);
 
 static err_t tcpAcceptCallback(void *arg, struct tcp_pcb *newpcb, err_t err)
 {
-    IPStack *stack = (__bridge IPStack *)arg;
+    TSIPStack *stack = (__bridge TSIPStack *)arg;
     return [stack didAcceptTcpPcb:newpcb error:err];
 }
 
 static err_t packetOutput(struct netif *netif, struct pbuf *p, const ip4_addr_t *ipaddr)
 {
     if (!p) { return ERR_ARG; }
-    IPStack *stack = (__bridge IPStack *)(netif->state);
+    TSIPStack *stack = (__bridge TSIPStack *)(netif->state);
     if (stack == nil) { return ERR_ARG; }
     uint32_t bytes = p->tot_len;
     dispatch_async(stack.processQueue, ^{
-        [stack onPacketSentBytes:bytes];
-        CFTimeInterval start = CACurrentMediaTime();
+        (void)bytes; // metrics removed
         [stack sendOutPacket:p];
         pbuf_free(p);
-        double latency = CACurrentMediaTime() - start;
-        [stack onBatchFlushedBytes:bytes latency:latency count:1];
     });
     return ERR_OK;
 }
@@ -269,86 +259,4 @@ static err_t packetOutput(struct netif *netif, struct pbuf *p, const ip4_addr_t 
     }
 }
 
-- (void)onPacketSentBytes:(uint32_t)bytes
-{
-    if (self.behavior != nil) {
-        [self.behavior onPacketSentBytes:bytes];
-    }
-}
-
-- (void)onBatchFlushedBytes:(uint32_t)bytes latency:(double)latency count:(NSUInteger)count
-{
-    if (self.behavior != nil) {
-        [self.behavior onBatchFlushedBytes:bytes latency:latency count:count];
-    }
-}
-
-- (void)onPacketReceivedBytes:(uint32_t)bytes
-{
-    if (self.behavior != nil) {
-        [self.behavior onPacketReceivedBytes:bytes];
-    }
-}
-
-- (IPStackStatusSnapshot)statusSnapshot
-{
-    IPStackStatusSnapshot snap = {0};
-    if (self.behavior != nil && [self.behavior respondsToSelector:@selector(statsObject)]) {
-        id statsObj = [self.behavior statsObject];
-        if ([statsObj respondsToSelector:@selector(packetsReceived)]) {
-            snap.packetsReceived = [[statsObj valueForKey:@"packetsReceived"] unsignedLongLongValue];
-        }
-        if ([statsObj respondsToSelector:@selector(packetsSent)]) {
-            snap.packetsSent = [[statsObj valueForKey:@"packetsSent"] unsignedLongLongValue];
-        }
-        if ([statsObj respondsToSelector:@selector(bytesReceived)]) {
-            snap.bytesReceived = [[statsObj valueForKey:@"bytesReceived"] unsignedLongLongValue];
-        }
-        if ([statsObj respondsToSelector:@selector(bytesSent)]) {
-            snap.bytesSent = [[statsObj valueForKey:@"bytesSent"] unsignedLongLongValue];
-        }
-        if ([statsObj respondsToSelector:@selector(errorCount)]) {
-            snap.errorCount = [[statsObj valueForKey:@"errorCount"] unsignedLongLongValue];
-        }
-        if ([statsObj respondsToSelector:@selector(receiveThroughputBytesPerSec)]) {
-            snap.rxThroughputBytesPerSec = [[statsObj valueForKey:@"receiveThroughputBytesPerSec"] doubleValue];
-        }
-        if ([statsObj respondsToSelector:@selector(sendThroughputBytesPerSec)]) {
-            snap.txThroughputBytesPerSec = [[statsObj valueForKey:@"sendThroughputBytesPerSec"] doubleValue];
-        }
-    }
-    return snap;
-}
-
-@end
-
-@implementation IPStackDefaultMetrics
-- (instancetype)init
-{
-    if (self = [super init]) {
-        _stats = [[IPStackStats alloc] init];
-    }
-    return self;
-}
-
-- (void)onPacketSentBytes:(uint32_t)bytes
-{
-    self.stats.packetsSent += 1;
-    self.stats.bytesSent += bytes;
-    self.stats.lastUpdateTime = CACurrentMediaTime();
-}
-
-- (void)onBatchFlushedBytes:(uint32_t)bytes latency:(double)latency count:(NSUInteger)count
-{
-    (void)bytes; (void)latency; (void)count;
-}
-
-- (void)onPacketReceivedBytes:(uint32_t)bytes
-{
-    self.stats.packetsReceived++;
-    self.stats.bytesReceived += bytes;
-    self.stats.lastUpdateTime = CACurrentMediaTime();
-}
-
-- (id)statsObject { return self.stats; }
 @end

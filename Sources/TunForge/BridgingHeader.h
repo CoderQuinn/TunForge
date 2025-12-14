@@ -8,7 +8,7 @@
 #ifndef Header_h
 #define Header_h
 
-#import "IPStack.h"
-#import "TCPSocket.h"
+#import "TSIPStack.h"
+#import "TSTCPSocket.h"
 
 #endif /* Header_h */
