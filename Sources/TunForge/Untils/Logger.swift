@@ -29,26 +29,26 @@ public enum TunForgeLogger: Sendable {
 
     public static func info(_ msg: String) {
         setup()
-        DDLogInfo(msg)
+        DDLogInfo("\(msg)")
     }
 
     public static func debug(_ msg: String) {
         setup()
-        DDLogDebug(msg)
+        DDLogDebug("\(msg)")
     }
 
     public static func error(_ msg: String) {
         setup()
-        DDLogError(msg)
+        DDLogError("\(msg)")
     }
 
     public static func warning(_ msg: String) {
         setup()
-        DDLogWarn(msg)
+        DDLogWarn("\(msg)")
     }
 
     public static func verbose(_ msg: String) {
         setup()
-        DDLogVerbose(msg)
+        DDLogVerbose("\(msg)")
     }
 }
