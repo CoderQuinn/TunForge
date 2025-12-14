@@ -13,14 +13,12 @@ NS_ASSUME_NONNULL_BEGIN
 
 typedef void(^OutboundHandler)(NSData * _Nullable packet, int family);
 
-@protocol IPStackBehavior <NSObject>
-- (uint32_t)recommendedBatchThreshold;
-- (uint32_t)recommendedFlushIntervalMs;
-- (BOOL)isLowLatencyModeEnabled;
-- (void)setLowLatencyModeEnabled:(BOOL)enabled;
+@protocol IPStackMetricsBehavior <NSObject>
 - (void)onPacketSentBytes:(uint32_t)bytes;
 - (void)onBatchFlushedBytes:(uint32_t)bytes latency:(double)latency count:(NSUInteger)count;
 - (void)onPacketReceivedBytes:(uint32_t)bytes;
+// Optional: provide stats backing for snapshot
+- (id)statsObject;
 @end
 
 @protocol IPStackDelegate <NSObject>
@@ -37,6 +35,9 @@ typedef void(^OutboundHandler)(NSData * _Nullable packet, int family);
 @property (nonatomic, strong, readonly) dispatch_queue_t processQueue;
 @property (nonatomic, strong) id<IPStackBehavior> behavior; // strategy for pacing/low-latency/metrics
 
+// Default singleton instance
++ (instancetype)defaultIPStack;
+
 - (instancetype)init;
 
 // Configure IPv4 before setup: call immediately after init/create.
@@ -52,11 +53,22 @@ typedef void(^OutboundHandler)(NSData * _Nullable packet, int family);
 - (BOOL)isOnProcessQueue;
 - (void)assertOnProcessQueue;
 
-// Hooks for batching/pacing (forwarded to behavior)
-- (uint32_t)recommendedBatchThreshold;
-- (uint32_t)recommendedFlushIntervalMs;
-- (BOOL)isLowLatencyModeEnabled;
-- (void)setLowLatencyModeEnabled:(BOOL)enabled;
+// Minimal status snapshot for quick diagnostics
+typedef struct {
+	uint64_t packetsReceived;
+	uint64_t packetsSent;
+	uint64_t bytesReceived;
+	uint64_t bytesSent;
+	uint64_t errorCount;
+	double rxThroughputBytesPerSec;
+	double txThroughputBytesPerSec;
+} IPStackStatusSnapshot;
+
+- (IPStackStatusSnapshot)statusSnapshot;
+
+// Start/stop periodic per-socket stats reporting (optional no-op)
+- (void)startStatsReportingWithInterval:(NSTimeInterval)intervalSeconds;
+- (void)stopStatsReporting;
 
 // Internal hooks for behavior extension
 - (void)onPacketSentBytes:(uint32_t)bytes;

@@ -11,7 +11,23 @@
 #include "lwip/tcp.h"
 #import "TCPSocketStatsReport.h"
 
-@protocol TCPSocketDelegate;
+@class TCPSocket;
+
+@protocol TCPSocketDelegate <NSObject>
+
+- (void)socketDidCloseLocally:(TCPSocket *)socket;
+
+- (void)socketDidReset:(TCPSocket *)socket;
+
+- (void)socketDidAbort:(TCPSocket *)socket;
+
+- (void)socketDidClose:(TCPSocket *)socket;
+
+- (void)socket:(TCPSocket *)socket didReadData:(NSData *)data;
+
+- (void)socket:(TCPSocket *)socket didWriteDataOfLength:(NSUInteger)length;
+
+@end
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -31,22 +47,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 // Snapshot all current sockets' stats (thread-safe)
 + (NSArray<TCPSocketStatsReport *> *)allSocketStatsReports;
-
-@end
-
-@protocol TCPSocketDelegate <NSObject>
-
-- (void)socketDidCloseLocally:(TCPSocket *)socket;
-
-- (void)socketDidReset:(TCPSocket *)socket;
-
-- (void)socketDidAbort:(TCPSocket *)socket;
-
-- (void)socketDidClose:(TCPSocket *)socket;
-
-- (void)socket:(TCPSocket *)socket didReadData:(NSData *)data;
-
-- (void)socket:(TCPSocket *)socket didWriteDataOfLength:(NSUInteger)length;
 
 @end
 
