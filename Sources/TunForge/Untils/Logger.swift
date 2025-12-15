@@ -1,54 +1,61 @@
 import CocoaLumberjackSwift
 import Foundation
 
-public enum TunForgeLogger: Sendable {
-    private static let setupQueue = DispatchQueue(label: "com.tunforge.logger.setup")
-    private nonisolated(unsafe) static var isSetup = false
+import Cocoa
+public enum TunForgeLogger {
 
-    private static func setup() {
-        setupQueue.sync {
-            guard !isSetup else { return }
-
-            // TTY logger for console (Xcode / Terminal)
-            guard let consolLogger = DDTTYLogger.sharedInstance else {
-                return
-            }
-            consolLogger.logFormatter = TunForgeLogFormatter()
-            DDLog.add(consolLogger)
-
-            // File logger
-            let fileLogger = DDFileLogger()
-            fileLogger.rollingFrequency = 60 * 60 * 24 // 24 hours
-            fileLogger.logFileManager.maximumNumberOfLogFiles = 7
-            DDLog.add(fileLogger)
-
-            isSetup = true
-            DDLogInfo("TunForge Logger initialized")
+    // MARK: - Logger Setup (lazy, thread-safe)
+    private static let setupLogger: Void = {
+        // Console logger (TTY)
+        if let consoleLogger = DDTTYLogger.sharedInstance {
+            consoleLogger.logFormatter = TunForgeLogFormatter()
+            DDLog.add(consoleLogger)
         }
+
+        // File logger
+        let fileLogger = DDFileLogger()
+        fileLogger.rollingFrequency = 60 * 60 * 24  // 24h
+        fileLogger.logFileManager.maximumNumberOfLogFiles = 7
+        DDLog.add(fileLogger)
+
+        DDLogInfo("🔹 TunForge Logger initialized")
+    }()
+
+    // MARK: - Ensure logger setup
+    @inline(__always)
+    private static func ensureSetup() {
+        _ = setupLogger
     }
 
+    // MARK: - Public Logging APIs
+
+    /// Info level log
     public static func info(_ msg: String) {
-        setup()
-        DDLogInfo("\(msg)")
+        ensureSetup()
+        DDLogInfo(msg)
     }
 
+    /// Debug level log
     public static func debug(_ msg: String) {
-        setup()
-        DDLogDebug("\(msg)")
+        ensureSetup()
+        DDLogDebug(msg)
     }
 
+    /// Error level log
     public static func error(_ msg: String) {
-        setup()
-        DDLogError("\(msg)")
+        ensureSetup()
+        DDLogError(msg)
     }
 
+    /// Warning level log
     public static func warning(_ msg: String) {
-        setup()
-        DDLogWarn("\(msg)")
+        ensureSetup()
+        DDLogWarn(msg)
     }
 
+    /// Verbose level log
     public static func verbose(_ msg: String) {
-        setup()
-        DDLogVerbose("\(msg)")
+        ensureSetup()
+        DDLogVerbose(msg)
     }
 }

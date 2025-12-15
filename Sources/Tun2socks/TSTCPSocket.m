@@ -4,481 +4,327 @@
 //
 //  Created by MagicianQuinn on 2025/12/13.
 //
-//
 
 #import "TSTCPSocket.h"
+#import "TFLog.h"
+#include "lwip/tcp.h"
 #include <string.h>
-// C bridge logging functions (exported from Swift `TunForgeLogger`)
-extern void TFLogInfo(const char *msg);
-extern void TFLogDebug(const char *msg);
-extern void TFLogError(const char *msg);
-extern void TFLogWarning(const char *msg);
-extern void TFLogVerbose(const char *msg);
 
 @interface TSTCPSocket ()
-
 @property (nonatomic, assign) struct tcp_pcb *pcb;
-
-@property (nonatomic, assign) NSUInteger identity;
-
-@property (nonatomic, weak) id<TSTCPSocketDelegate> delegate;
-
 @property (nonatomic, strong) dispatch_queue_t queue;
-
-@property (nonatomic, assign, getter=isSentClosedSignal) BOOL sentClosedSignal;
-
-@property (nonatomic, assign, getter=isValid) BOOL valid;
-
-@property (nonatomic, assign, getter=isConnected) BOOL connected;
-
 @end
 
 @implementation TSTCPSocket
 
-static NSMutableDictionary<NSNumber *, TSTCPSocket *> *_socketDict;
-static dispatch_queue_t _socketDictQueue;
+#pragma mark - Lifecycle
 
-+ (void)setSocketDict:(NSMutableDictionary<NSNumber *,TSTCPSocket *> *)socketDict
-{
-    if (socketDict != _socketDict)
-    {
-        _socketDict = socketDict;
-    }
-}
-
-+ (NSMutableDictionary<NSNumber *,TSTCPSocket *> *)socketDict
-{
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        _socketDict = [NSMutableDictionary dictionaryWithCapacity:1024];
-        _socketDictQueue = dispatch_queue_create("tun2socks.tcp.socketDict.queue", DISPATCH_QUEUE_CONCURRENT);
-    });
-    return _socketDict;
-}
-
-+ (TSTCPSocket *)socketForIdentity:(NSUInteger)identity
-{
-    __block TSTCPSocket *result = nil;
-    dispatch_sync(_socketDictQueue, ^{
-        result = [_socketDict objectForKey:@(identity)];
-    });
-    return result;
-}
-
-+ (NSInteger)uniqueKey
-{
-    UInt32 randomKey = arc4random();
-    while ([self socketForIdentity:randomKey] != nil)
-    {
-        randomKey = arc4random();
-    }
-    return (NSInteger)randomKey;
-}
-
-- (void)setDelegate:(id<TSTCPSocketDelegate>)delegate
-{
-    if (delegate != _delegate)
-    {
-        _delegate = delegate;
-    }
-}
-
-- (BOOL)isValid
-{
-    return self.pcb != nil;
-}
-
-- (BOOL)isConnected
-{
-    return [self isValid] && (self.pcb->state != CLOSED);
-}
-
-- (instancetype)initWithTCPPcb:(struct tcp_pcb*)pcb queue:(dispatch_queue_t)queue
+- (instancetype)initWithTCPPcb:(struct tcp_pcb *)pcb
+                         queue:(dispatch_queue_t)queue
+                      delegate:(id<TSTCPSocketDelegate>)delegate
+                 delegateQueue:(dispatch_queue_t)delegateQueue
 {
     if (self = [super init])
     {
         if (!pcb || !queue) {
-            TFLogError("[TSTCPSocket] Init with NULL pcb or queue");
+            TFLogModuleError(@"TSTCPSocket", @"Init failed: NULL pcb or queue");
             return nil;
         }
-        
+
         _pcb = pcb;
         _queue = queue;
-        
-        _sourcePort = pcb->remote_port;
-        struct in_addr sourceIP = {pcb->remote_ip.addr};
-        _sourceAddress = sourceIP;
-        
-        _destinationPort = pcb->local_port;
-        struct in_addr destinationIP = {pcb->local_ip.addr};
-        _destinationAddress = destinationIP;
+        _delegate = delegate;
+        _delegateQueue = delegateQueue;
 
-        _identity = [[self class] uniqueKey];
-        // Register in socket dictionary via queue for thread-safety
-        dispatch_barrier_async(_socketDictQueue, ^{
-            _socketDict[@(_identity)] = self;
-        });
-        
+        _sourcePort = pcb->remote_port;
+        struct in_addr srcIP = {pcb->remote_ip.addr};
+        _sourceAddress = srcIP;
+
+        _destinationPort = pcb->local_port;
+        struct in_addr dstIP = {pcb->local_ip.addr};
+        _destinationAddress = dstIP;
+
         [self setupTCPPCB];
+        TFLogModuleInfo(@"TSTCPSocket", @"Initialized successfully");
     }
     return self;
 }
 
-- (void)setupTCPPCB
-{
+- (instancetype)initWithTCPPcb:(struct tcp_pcb *)pcb queue:(dispatch_queue_t)queue {
+    return [self initWithTCPPcb:pcb queue:queue delegate:nil delegateQueue:nil];
+}
+
+- (void)dealloc {
+    if (self.pcb) {
+        tcp_arg(self.pcb, NULL);
+        tcp_recv(self.pcb, NULL);
+        tcp_sent(self.pcb, NULL);
+        tcp_err(self.pcb, NULL);
+        TFLogModuleDebug(@"TSTCPSocket", @"Deallocated");
+    }
+}
+
+#pragma mark - Queue Assertion
+
+- (void)assertOnQueue {
+#if DEBUG
+    dispatch_assert_queue(self.queue);
+#endif
+}
+
+#pragma mark - LwIP Setup
+
+- (void)setupTCPPCB {
     if (!self.pcb) {
-        TFLogError("[TSTCPSocket] setupTCPPCB called with NULL pcb");
+        TFLogModuleError(@"TSTCPSocket", @"setupTCPPCB called with NULL pcb");
         return;
     }
-    
-    // Store identity value directly (not pointer) - safe across object lifetime
-    tcp_arg(self.pcb, (void *)(uintptr_t)self.identity);
+
+    tcp_arg(self.pcb, (__bridge void *)(self));
     tcp_recv(self.pcb, tcp_recv_callback);
     tcp_sent(self.pcb, tcp_sent_callback);
     tcp_err(self.pcb, tcp_err_callback);
+    TFLogModuleDebug(@"TSTCPSocket", @"TCP pcb callbacks set");
 }
 
-- (void)errorOccurred:(err_t)error
-{
-    [self invalidate];
-    
-    switch (error)
-    {
-        case ERR_RST:
-        {
-            {
-                char buf[128];
-                snprintf(buf, sizeof(buf), "[TSTCPSocket %lu] Connection reset by peer", (unsigned long)self.identity);
-                TFLogWarning(buf);
-            }
-            if (self.delegate != nil && [self.delegate respondsToSelector:@selector(socketDidReset:)])
-            {
-                [self.delegate socketDidReset:self];
-            }
-            break;
-        }
-        case ERR_ABRT:
-        {
-            {
-                char buf[128];
-                snprintf(buf, sizeof(buf), "[TSTCPSocket %lu] Connection aborted", (unsigned long)self.identity);
-                TFLogError(buf);
-            }
-            if (self.delegate != nil && [self.delegate respondsToSelector:@selector(socketDidAbort:)])
-            {
-                [self.delegate socketDidAbort:self];
-            }
-            break;
-        }
-        case ERR_CLSD:
-        {
-            {
-                char buf[128];
-                snprintf(buf, sizeof(buf), "[TSTCPSocket %lu] Connection closed", (unsigned long)self.identity);
-                TFLogInfo(buf);
-            }
-            if(self.delegate && [self.delegate respondsToSelector:@selector(socketDidClose:)]) {
-                [self.delegate socketDidClose:self];
-            }
-            break;
-        }
-        default:
-        {
-            {
-                char buf[128];
-                snprintf(buf, sizeof(buf), "[TSTCPSocket %lu] Error occurred: %d", (unsigned long)self.identity, error);
-                TFLogError(buf);
-            }
-            break;
+#pragma mark - Private Methods
+
+- (dispatch_queue_t)effectiveDelegateQueue {
+    return self.delegateQueue ?: dispatch_get_main_queue();
+}
+
+- (void)cleanupWithAbort:(BOOL)abort notifyDelegate:(BOOL)notify {
+    [self assertOnQueue];
+
+    if (!self.pcb) return;
+
+    tcp_arg(self.pcb, NULL);
+    tcp_recv(self.pcb, NULL);
+    tcp_sent(self.pcb, NULL);
+    tcp_err(self.pcb, NULL);
+
+    if (abort) {
+        tcp_abort(self.pcb);
+        TFLogModuleWarn(@"TSTCPSocket", @"Connection aborted");
+    } else {
+        err_t error = tcp_close(self.pcb);
+        if (error != ERR_OK) {
+            TFLogModuleError(@"TSTCPSocket", @"tcp_close failed: %d, aborting instead", error);
+            tcp_abort(self.pcb);
         }
     }
-}
 
-- (void)invalidate
-{
+    if (notify && self.delegate && [self.delegate respondsToSelector:@selector(socketDidClose:)]) {
+        dispatch_async([self effectiveDelegateQueue], ^{
+            [self.delegate socketDidClose:self];
+        });
+    }
+
     self.pcb = NULL;
-    
-    dispatch_barrier_async(_socketDictQueue, ^{
-        [_socketDict removeObjectForKey:@(self.identity)];
-    });
 }
 
-- (void)sendDataOfLength:(NSUInteger)length
-{
-    if (self.delegate != nil && [self.delegate respondsToSelector:@selector(socket:didWriteDataOfLength:)])
-    {
-        [self.delegate socket:self didWriteDataOfLength:length];
-    }
-}
+- (void)writeDataInternal:(NSData *)data {
+    [self assertOnQueue];
 
-- (void)writeData:(NSData *)data
-{
-    if (![self isValid]) {
-        char buf[160];
-        snprintf(buf, sizeof(buf), "[TSTCPSocket %lu] Cannot write data: socket invalid", (unsigned long)self.identity);
-        TFLogError(buf);
-        return;
-    }
-    
-    if (data == nil || data.length == 0) {
-        return;
-    }
-    
+    if (!self.pcb || !data || data.length == 0) return;
+
     if (data.length > UINT16_MAX) {
-        char buf[200];
-        snprintf(buf, sizeof(buf), "[TSTCPSocket %lu] Data too large: %lu bytes (max %d)", 
-                 (unsigned long)self.identity, (unsigned long)data.length, UINT16_MAX);
-        TFLogWarning(buf);
-        [self close];
+        TFLogModuleError(@"TSTCPSocket", @"Data too large: %lu bytes", (unsigned long)data.length);
+        [self closeInternal];
         return;
     }
-    
-    const void *dataptr = [data bytes];
+
+    const void *dataptr = data.bytes;
     UInt16 length = (UInt16)data.length;
-    
+
     err_t error = tcp_write(self.pcb, dataptr, length, TCP_WRITE_FLAG_COPY);
-    if (error != ERR_OK)
-    {
-        char buf[160];
-        snprintf(buf, sizeof(buf), "[TSTCPSocket %lu] tcp_write failed: %d", (unsigned long)self.identity, error);
-        TFLogError(buf);
-        [self close];
+    if (error != ERR_OK) {
+        TFLogModuleError(@"TSTCPSocket", @"tcp_write failed: %d", error);
+        [self closeInternal];
         return;
     }
 
     error = tcp_output(self.pcb);
     if (error != ERR_OK) {
-        char buf[160];
-        snprintf(buf, sizeof(buf), "[TSTCPSocket %lu] tcp_output failed: %d", (unsigned long)self.identity, error);
-        TFLogError(buf);
+        TFLogModuleError(@"TSTCPSocket", @"tcp_output failed: %d", error);
     }
 }
 
-- (void)receivedBuf:(struct pbuf *)pbuf
-{
-    // NOTE: caller transfers ownership; we free exactly once here
-    if (!pbuf)
-    {
-        // NULL pbuf indicates connection closed by remote
-        {
-            char buf[200];
-            snprintf(buf, sizeof(buf), "[TSTCPSocket %lu] Received NULL pbuf - connection closed remotely", (unsigned long)self.identity);
-            TFLogInfo(buf);
-        }
-        if (self.delegate != nil && [self.delegate respondsToSelector:@selector(socketDidCloseLocally:)])
-        {
-            [self.delegate socketDidCloseLocally:self];
-        }
-    }
-    else
-    {
-        uint16_t totalLength = pbuf->tot_len;
-        NSMutableData *packetData = [NSMutableData dataWithLength:totalLength];
-        if (packetData == nil) {
-            {
-                char buf[200];
-                snprintf(buf, sizeof(buf), "[TSTCPSocket %lu] Failed to allocate data for %d bytes", 
-                         (unsigned long)self.identity, totalLength);
-                TFLogError(buf);
+- (void)closeInternal {
+    [self assertOnQueue];
+    if (!self.pcb) return;
+    [self cleanupWithAbort:NO notifyDelegate:YES];
+}
+
+- (void)resetInternal {
+    [self assertOnQueue];
+    if (!self.pcb) return;
+    [self cleanupWithAbort:YES notifyDelegate:YES];
+}
+
+#pragma mark - Public API
+
+/**
+ * Thread-safe write method. Executes on the socket's queue.
+ */
+- (void)writeData:(NSData *)data {
+    dispatch_async(self.queue, ^{
+        [self writeDataInternal:data];
+    });
+}
+
+/**
+ * Thread-safe close method. Executes on the socket's queue.
+ */
+- (void)close {
+    dispatch_async(self.queue, ^{
+        [self closeInternal];
+    });
+}
+
+/**
+ * Thread-safe reset method. Executes on the socket's queue.
+ */
+- (void)reset {
+    dispatch_async(self.queue, ^{
+        [self resetInternal];
+    });
+}
+
+/**
+ * Thread-safe validity check. Executes on the socket's queue.
+ */
+- (BOOL)isValid {
+    __block BOOL valid;
+    dispatch_sync(self.queue, ^{
+        valid = self.pcb != NULL;
+    });
+    return valid;
+}
+
+/**
+ * Thread-safe connection check. Executes on the socket's queue.
+ */
+- (BOOL)isConnected {
+    __block BOOL connected;
+    dispatch_sync(self.queue, ^{
+        connected = (self.pcb != NULL) && (self.pcb->state != CLOSED);
+    });
+    return connected;
+}
+
+#pragma mark - lwIP Callbacks
+
+- (void)handleError:(err_t)error {
+    [self assertOnQueue];
+    self.pcb = NULL;
+
+    switch (error) {
+        case ERR_RST:
+            TFLogModuleWarn(@"TSTCPSocket", @"Connection reset by peer");
+            if (self.delegate && [self.delegate respondsToSelector:@selector(socketDidReset:)]) {
+                dispatch_async([self effectiveDelegateQueue], ^{
+                    [self.delegate socketDidReset:self];
+                });
             }
-            pbuf_free(pbuf);
-            return;
+            break;
+        case ERR_ABRT:
+            TFLogModuleError(@"TSTCPSocket", @"Connection aborted");
+            if (self.delegate && [self.delegate respondsToSelector:@selector(socketDidAbort:)]) {
+                dispatch_async([self effectiveDelegateQueue], ^{
+                    [self.delegate socketDidAbort:self];
+                });
+            }
+            break;
+        case ERR_CLSD:
+            TFLogModuleInfo(@"TSTCPSocket", @"Connection closed");
+            if (self.delegate && [self.delegate respondsToSelector:@selector(socketDidClose:)]) {
+                dispatch_async([self effectiveDelegateQueue], ^{
+                    [self.delegate socketDidClose:self];
+                });
+            }
+            break;
+        default:
+            TFLogModuleError(@"TSTCPSocket", @"Unknown error: %d", error);
+            break;
+    }
+}
+
+- (void)handleSentBytes:(NSUInteger)length {
+    [self assertOnQueue];
+    if (self.delegate && [self.delegate respondsToSelector:@selector(socket:didWriteDataOfLength:)]) {
+        dispatch_async([self effectiveDelegateQueue], ^{
+            [self.delegate socket:self didWriteDataOfLength:length];
+        });
+    }
+}
+
+- (void)handleReceivedPbuf:(struct pbuf *)pbuf {
+    [self assertOnQueue];
+
+    if (!pbuf) {
+        if (self.delegate && [self.delegate respondsToSelector:@selector(socketDidShutdownRead:)]) {
+            dispatch_async([self effectiveDelegateQueue], ^{
+                [self.delegate socketDidShutdownRead:self];
+            });
         }
-        
-        void *dataptr = [packetData mutableBytes];
-        pbuf_copy_partial(pbuf, dataptr, totalLength, 0);
-        
-        if (self.delegate != nil && [self.delegate respondsToSelector:@selector(socket:didReadData:)])
-        {
-            [self.delegate socket:self didReadData:packetData];
-        }
-        
-        if ([self isValid])
-        {
-            tcp_recved(self.pcb, totalLength);
-        }
-        
-        // Always free pbuf after processing
+        return;
+    }
+
+    uint16_t totalLength = pbuf->tot_len;
+    NSMutableData *packetData = [NSMutableData dataWithLength:totalLength];
+    if (!packetData) {
+        TFLogModuleError(@"TSTCPSocket", @"Failed to allocate data for %d bytes", totalLength);
         pbuf_free(pbuf);
-    }
-}
-
-- (void)close
-{
-    if (![self isValid]) {
-        char buf[160];
-        snprintf(buf, sizeof(buf), "[TSTCPSocket %lu] Close called on invalid socket", (unsigned long)self.identity);
-        TFLogWarning(buf);
         return;
     }
-    
-    tcp_arg(self.pcb, NULL);
-    tcp_recv(self.pcb, NULL);
-    tcp_sent(self.pcb, NULL);
-    tcp_err(self.pcb, NULL);
-    
-    err_t error = tcp_close(self.pcb);
-    if (error != ERR_OK) {
-        char buf[200];
-        snprintf(buf, sizeof(buf), "[TSTCPSocket %lu] tcp_close failed: %d, aborting instead", 
-                 (unsigned long)self.identity, error);
-        TFLogError(buf);
-        tcp_abort(self.pcb);
+
+    pbuf_copy_partial(pbuf, packetData.mutableBytes, totalLength, 0);
+
+    if (self.delegate && [self.delegate respondsToSelector:@selector(socket:didReadData:)]) {
+        dispatch_async([self effectiveDelegateQueue], ^{
+            [self.delegate socket:self didReadData:packetData];
+        });
     }
-    
-    [self invalidate];
-    
-    if (self.delegate != nil && [self.delegate respondsToSelector:@selector(socketDidClose:)])
-    {
-        [self.delegate socketDidClose:self];
+
+    if (self.pcb) {
+        tcp_recved(self.pcb, totalLength);
     }
+
+    pbuf_free(pbuf);
 }
 
-- (void)reset
-{
-    if (![self isValid]) return;
-    
-    tcp_arg(self.pcb, NULL);
-    tcp_recv(self.pcb, NULL);
-    tcp_sent(self.pcb, NULL);
-    tcp_err(self.pcb, NULL);
-    
-    tcp_abort(self.pcb);
-    [self invalidate];
-    
-    if (nil != self.delegate && [self.delegate respondsToSelector:@selector(socketDidClose:)])
-    {
-        [self.delegate socketDidClose:self];
-    }
-}
+#pragma mark - C Callbacks
 
-/** Function prototype for tcp receive callback functions. Called when data has
- * been received.
- *
- * @param arg Additional argument to pass to the callback function (@see tcp_arg())
- * @param tpcb The connection pcb which received data
- * @param p The received data (or NULL when the connection has been closed!)
- * @param err An error code if there has been an error receiving
- *            Only return ERR_ABRT if you have called tcp_abort from within the
- *            callback function!
- */
-static err_t tcp_recv_callback(void *arg, struct tcp_pcb *tpcb,
-                               struct pbuf *p, err_t err)
-{
-    if (err != ERR_OK) {
-        char buf[160];
-        snprintf(buf, sizeof(buf), "[TSTCPSocket] tcp_recv_callback received error: %d", err);
-        TFLogError(buf);
-        // errors counted in per-socket instance when available
-        if (p != NULL) {
-            pbuf_free(p);
-        }
-        return err;
-    }
-    
-    if (!arg) {
-        TFLogError("[TSTCPSocket] tcp_recv_callback received NULL arg");
-        if (p != NULL) {
-            pbuf_free(p);
-        }
-        tcp_abort(tpcb);
-        return ERR_ABRT;
-    }
-    
-    // Extract identity value from arg
-    NSUInteger identity = (NSUInteger)(uintptr_t)arg;
-    TSTCPSocket *socket = [TSTCPSocket socketForIdentity:identity];
-    
-    if (socket == nil)
-    {
-        char buf[200];
-        snprintf(buf, sizeof(buf), "[TSTCPSocket] Socket not found for identity %lu, aborting", (unsigned long)identity);
-        TFLogError(buf);
-        if (p != NULL) {
-            pbuf_free(p);
-        }
-        tcp_abort(tpcb);
-        return ERR_ABRT;
-    }
-    
-    // CRITICAL: lwIP callbacks are NOT on processQueue by default!
-    // Must dispatch to socket's queue to serialize with other lwIP operations
+static err_t tcp_recv_callback(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err) {
+    if (!arg) { if (p) pbuf_free(p); tcp_abort(tpcb); return ERR_ABRT; }
+    TSTCPSocket *socket = (__bridge TSTCPSocket *)arg;
+    if (!socket) { if (p) pbuf_free(p); tcp_abort(tpcb); return ERR_ABRT; }
+
     dispatch_async(socket.queue, ^{
-        [socket receivedBuf:p];
+        [socket handleReceivedPbuf:p];
     });
     return ERR_OK;
 }
 
-/** Function prototype for tcp sent callback functions. Called when sent data has
- * been acknowledged by the remote side. Use it to free corresponding resources.
- * This also means that the pcb has now space available to send new data.
- *
- * @param arg Additional argument to pass to the callback function (@see tcp_arg())
- * @param tpcb The connection pcb for which data has been acknowledged
- * @param len The amount of bytes acknowledged
- * @return ERR_OK: try to send some data by calling tcp_output
- *            Only return ERR_ABRT if you have called tcp_abort from within the
- *            callback function!
- */
-static err_t tcp_sent_callback(void *arg, struct tcp_pcb *tpcb,
-                               u16_t len)
-{
-    if (!arg) {
-        TFLogError("[TSTCPSocket] tcp_sent_callback received NULL arg");
-        tcp_abort(tpcb);
-        return ERR_ABRT;
-    }
-    
-    // Extract identity value from arg
-    NSUInteger identity = (NSUInteger)(uintptr_t)arg;
-    TSTCPSocket *socket = [TSTCPSocket socketForIdentity:identity];
-    
-    if (socket == nil)
-    {
-        char buf[200];
-        snprintf(buf, sizeof(buf), "[TSTCPSocket] Socket not found for identity %lu, aborting", (unsigned long)identity);
-        TFLogError(buf);
-        tcp_abort(tpcb);
-        return ERR_ABRT;
-    }
+static err_t tcp_sent_callback(void *arg, struct tcp_pcb *tpcb, u16_t len) {
+    if (!arg) { tcp_abort(tpcb); return ERR_ABRT; }
+    TSTCPSocket *socket = (__bridge TSTCPSocket *)arg;
+    if (!socket) { tcp_abort(tpcb); return ERR_ABRT; }
 
-    // CRITICAL: Dispatch to socket's queue to serialize with lwIP operations
     dispatch_async(socket.queue, ^{
-        [socket sendDataOfLength:len];
+        [socket handleSentBytes:len];
     });
     return ERR_OK;
 }
 
-/** Function prototype for tcp error callback functions. Called when the pcb
- * receives a RST or is unexpectedly closed for any other reason.
- *
- * @note The corresponding pcb is already freed when this callback is called!
-                                    [self setupTCPPCB];
- * @param arg Additional argument to pass to the callback function (@see tcp_arg())
- * @param err Error code to indicate why the pcb has been closed
- *            ERR_ABRT: aborted through tcp_abort or by a TCP timer
- *            ERR_RST: the connection was reset by the remote host
- */
-static void tcp_err_callback(void *arg, err_t err)
-{
-    if (!arg) {
-        char buf[200];
-        snprintf(buf, sizeof(buf), "[TSTCPSocket] tcp_err_callback received NULL arg with error: %d", err);
-        TFLogError(buf);
-        return;
-    }
-    
-    // Extract identity value from arg
-    NSUInteger identity = (NSUInteger)(uintptr_t)arg;
-    TSTCPSocket *socket = [TSTCPSocket socketForIdentity:identity];
-    
-    if (socket != nil)
-    {
-        [socket errorOccurred:err];
-    } else {
-        char buf[220];
-        snprintf(buf, sizeof(buf), "[TSTCPSocket] Socket not found for identity %lu in error callback", (unsigned long)identity);
-        TFLogError(buf);
+static void tcp_err_callback(void *arg, err_t err) {
+    if (!arg) return;
+    TSTCPSocket *socket = (__bridge TSTCPSocket *)arg;
+    if (socket) {
+        dispatch_async(socket.queue, ^{
+            [socket handleError:err];
+        });
     }
 }
 
