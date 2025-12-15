@@ -2,8 +2,6 @@ import CocoaLumberjackSwift
 import Foundation
 
 import Cocoa
-import CocoaLumberjackSwift
-
 public enum TunForgeLogger {
 
     // MARK: - Logger Setup (lazy, thread-safe)
