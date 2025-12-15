@@ -164,7 +164,7 @@ static TSIPStack *_sharedInstance = nil;
 #ifdef TCP_TMR_INTERVAL
     uint64_t defaultInterval = TCP_TMR_INTERVAL; // tcp_tmr interval
 #else
-    uint64_t defaultInterval = 250
+    uint64_t defaultInterval = 250;
 #endif
     uint64_t interval = 250; // Default tcp_tmr_interval in ms
     dispatch_source_set_timer(self.timer, DISPATCH_TIME_NOW, interval * NSEC_PER_MSEC, 1 * NSEC_PER_MSEC);
