@@ -89,6 +89,10 @@
 
 #pragma mark - Private Methods
 
+- (dispatch_queue_t)effectiveDelegateQueue {
+    return self.delegateQueue ?: dispatch_get_main_queue();
+}
+
 - (void)cleanupWithAbort:(BOOL)abort notifyDelegate:(BOOL)notify {
     [self assertOnQueue];
 
@@ -111,7 +115,7 @@
     }
 
     if (notify && self.delegate && [self.delegate respondsToSelector:@selector(socketDidClose:)]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
+        dispatch_async([self effectiveDelegateQueue], ^{
             [self.delegate socketDidClose:self];
         });
     }
@@ -219,7 +223,7 @@
         case ERR_RST:
             TFLogModuleWarn(@"TSTCPSocket", @"Connection reset by peer");
             if (self.delegate && [self.delegate respondsToSelector:@selector(socketDidReset:)]) {
-                dispatch_async(dispatch_get_main_queue(), ^{
+                dispatch_async([self effectiveDelegateQueue], ^{
                     [self.delegate socketDidReset:self];
                 });
             }
@@ -227,7 +231,7 @@
         case ERR_ABRT:
             TFLogModuleError(@"TSTCPSocket", @"Connection aborted");
             if (self.delegate && [self.delegate respondsToSelector:@selector(socketDidAbort:)]) {
-                dispatch_async(dispatch_get_main_queue(), ^{
+                dispatch_async([self effectiveDelegateQueue], ^{
                     [self.delegate socketDidAbort:self];
                 });
             }
@@ -235,7 +239,7 @@
         case ERR_CLSD:
             TFLogModuleInfo(@"TSTCPSocket", @"Connection closed");
             if (self.delegate && [self.delegate respondsToSelector:@selector(socketDidClose:)]) {
-                dispatch_async(dispatch_get_main_queue(), ^{
+                dispatch_async([self effectiveDelegateQueue], ^{
                     [self.delegate socketDidClose:self];
                 });
             }
@@ -249,7 +253,7 @@
 - (void)handleSentBytes:(NSUInteger)length {
     [self assertOnQueue];
     if (self.delegate && [self.delegate respondsToSelector:@selector(socket:didWriteDataOfLength:)]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
+        dispatch_async([self effectiveDelegateQueue], ^{
             [self.delegate socket:self didWriteDataOfLength:length];
         });
     }
@@ -260,7 +264,7 @@
 
     if (!pbuf) {
         if (self.delegate && [self.delegate respondsToSelector:@selector(socketDidShutdownRead:)]) {
-            dispatch_async(dispatch_get_main_queue(), ^{
+            dispatch_async([self effectiveDelegateQueue], ^{
                 [self.delegate socketDidShutdownRead:self];
             });
         }
@@ -278,7 +282,7 @@
     pbuf_copy_partial(pbuf, packetData.mutableBytes, totalLength, 0);
 
     if (self.delegate && [self.delegate respondsToSelector:@selector(socket:didReadData:)]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
+        dispatch_async([self effectiveDelegateQueue], ^{
             [self.delegate socket:self didReadData:packetData];
         });
     }
