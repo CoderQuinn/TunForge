@@ -162,11 +162,10 @@ static TSIPStack *_sharedInstance = nil;
 - (void)resumeTimer {
     self.timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, self.processQueue);
 #ifdef TCP_TMR_INTERVAL
-    uint64_t defaultInterval = TCP_TMR_INTERVAL; // tcp_tmr interval
+    uint64_t interval = TCP_TMR_INTERVAL; // tcp_tmr interval
 #else
-    uint64_t defaultInterval = 250;
-#endif
     uint64_t interval = 250; // Default tcp_tmr_interval in ms
+#endif
     dispatch_source_set_timer(self.timer, DISPATCH_TIME_NOW, interval * NSEC_PER_MSEC, 1 * NSEC_PER_MSEC);
     __weak typeof(self) weakSelf = self;
     dispatch_source_set_event_handler(self.timer, ^{
