@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    name: Build & Test (macOS)
+    runs-on: macos-13
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '15.1'
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.swiftpm
+            .build
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Swift Build
+        run: |
+          swift --version
+          swift build -v
+
+      - name: Swift Test
+        run: |
+          swift test -v
+
+  lint:
+    name: Format Check
+    runs-on: macos-13
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: SwiftFormat (optional)
+        run: |
+          echo "No formatter configured; skipping."
