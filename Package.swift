@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "TunForge",
     platforms: [
-        .iOS(.v15),
+        .iOS(.v12),
         .macOS(.v13),
     ],
     products: [
@@ -41,14 +41,7 @@ let package = Package(
             name: "Tun2Socks",
             dependencies: ["Lwip"],
             path: "Sources/Tun2socks",
-            exclude: [
-                // Exclude old names after rename and prepare for removal
-                "TSIPStack.h",
-                "TSIPStack.m",
-                "TSTCPSocket.h",
-                "TSTCPSocket.m",
-            ],
-            publicHeadersPath: ".", // ObjC 头文件在根目录
+            publicHeadersPath: ".", // ObjC headers
             cSettings: [
                 .headerSearchPath("."),
                 .headerSearchPath("Metrics"),
