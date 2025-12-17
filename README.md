@@ -8,7 +8,7 @@
 ```swift
 import TunForge
 
-let stack = TSIPStack.default()
+let stack = LWIPStack.default()
 stack.configureIPv4(withIP: "10.0.0.2", netmask: "255.255.255.0", gateway: "10.0.0.1")
 stack.outboundHandler = { packet, family in /* send out */ }
 ```
