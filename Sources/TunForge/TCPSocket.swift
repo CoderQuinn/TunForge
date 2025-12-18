@@ -23,7 +23,7 @@ public protocol TCPSocketDelegate: AnyObject {
     func socket(_ socket: TCPSocket, didReadData data: Data)
     
     /// Called when data is written
-    func socket(_ socket: TCPSocket, didWriteDataOfLength length: Int)
+    func socket(_ socket: TCPSocket, didWriteDataOfLength length: UInt)
 }
 
 extension TCPSocketDelegate {
@@ -32,5 +32,5 @@ extension TCPSocketDelegate {
     public func socketDidAbort(_ socket: TCPSocket) {}
     public func socketDidClose(_ socket: TCPSocket) {}
     public func socket(_ socket: TCPSocket, didReadData data: Data) {}
-    public func socket(_ socket: TCPSocket, didWriteDataOfLength length: Int) {}
+    public func socket(_ socket: TCPSocket, didWriteDataOfLength length: UInt) {}
 }
