@@ -1,5 +1,5 @@
 //
-//  TSTCPSocket.h
+//  LWTCPSocket.h
 //  TunForge
 //
 //  Created by MagicianQuinn on 2025/12/13.
@@ -10,33 +10,33 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class TSTCPSocket;
+@class LWTCPSocket;
 
 @protocol TSTCPSocketDelegate <NSObject>
 
 @optional
 
 /// Remote peer performed a half-close (FIN) on read side.
-- (void)socketDidShutdownRead:(TSTCPSocket *)socket;
+- (void)socketDidShutdownRead:(LWTCPSocket *)socket;
 
 /// Connection was reset (RST).
-- (void)socketDidReset:(TSTCPSocket *)socket;
+- (void)socketDidReset:(LWTCPSocket *)socket;
 
 /// Connection was aborted due to fatal error.
-- (void)socketDidAbort:(TSTCPSocket *)socket;
+- (void)socketDidAbort:(LWTCPSocket *)socket;
 
 /// Connection closed (graceful or after reset).
-- (void)socketDidClose:(TSTCPSocket *)socket;
+- (void)socketDidClose:(LWTCPSocket *)socket;
 
 /// Data received from remote peer.
-- (void)socket:(TSTCPSocket *)socket didReadData:(NSData *)data;
+- (void)socket:(LWTCPSocket *)socket didReadData:(NSData *)data;
 
 /// Data successfully written to TCP send buffer.
-- (void)socket:(TSTCPSocket *)socket didWriteDataOfLength:(NSUInteger)length;
+- (void)socket:(LWTCPSocket *)socket didWriteDataOfLength:(NSUInteger)length;
 
 @end
 
-@interface TSTCPSocket : NSObject
+@interface LWTCPSocket : NSObject
 
 /// Local (source) IPv4 address.
 @property (nonatomic, assign, readonly) struct in_addr sourceAddress;

@@ -1,21 +1,21 @@
 //
-//  TSTCPSocket.m
+//  LWTCPSocket.m
 //  TunForge
 //
 //  Created by MagicianQuinn on 2025/12/13.
 //
 
-#import "TSTCPSocket.h"
+#import "LWTCPSocket.h"
 #import "TFLog.h"
 #include "lwip/tcp.h"
 #include <string.h>
 
-@interface TSTCPSocket ()
+@interface LWTCPSocket ()
 @property (nonatomic, assign) struct tcp_pcb *pcb;
 @property (nonatomic, strong) dispatch_queue_t queue;
 @end
 
-@implementation TSTCPSocket
+@implementation LWTCPSocket
 
 #pragma mark - Lifecycle
 
@@ -27,7 +27,7 @@
     if (self = [super init])
     {
         if (!pcb || !queue) {
-            TFLogModuleError(@"TSTCPSocket", @"Init failed: NULL pcb or queue");
+            TFLogModuleError(@"LWTCPSocket", @"Init failed: NULL pcb or queue");
             return nil;
         }
 
@@ -35,6 +35,9 @@
         _queue = queue;
         _delegate = delegate;
         _delegateQueue = delegateQueue;
+
+        // Mark queue specific to allow isOnSocketQueue checks
+        dispatch_queue_set_specific(_queue, (__bridge const void *)(_queue), (__bridge void *)(_queue), NULL);
 
         _sourcePort = pcb->remote_port;
         struct in_addr srcIP = {pcb->remote_ip.addr};
@@ -45,7 +48,7 @@
         _destinationAddress = dstIP;
 
         [self setupTCPPCB];
-        TFLogModuleInfo(@"TSTCPSocket", @"Initialized successfully");
+        TFLogModuleInfo(@"LWTCPSocket", @"Initialized successfully");
     }
     return self;
 }
@@ -60,7 +63,8 @@
         tcp_recv(self.pcb, NULL);
         tcp_sent(self.pcb, NULL);
         tcp_err(self.pcb, NULL);
-        TFLogModuleDebug(@"TSTCPSocket", @"Deallocated");
+        self.pcb = NULL;
+        TFLogModuleDebug(@"LWTCPSocket", @"Deallocated");
     }
 }
 
@@ -72,11 +76,22 @@
 #endif
 }
 
+- (BOOL)isOnSocketQueue {
+    void *key = (__bridge void *)self.queue;
+    return dispatch_get_specific(key) == key;
+}
+
+- (void)assertOnSocketQueue {
+#if DEBUG
+    dispatch_assert_queue(self.queue);
+#endif
+}
+
 #pragma mark - LwIP Setup
 
 - (void)setupTCPPCB {
     if (!self.pcb) {
-        TFLogModuleError(@"TSTCPSocket", @"setupTCPPCB called with NULL pcb");
+        TFLogModuleError(@"LWTCPSocket", @"setupTCPPCB called with NULL pcb");
         return;
     }
 
@@ -84,7 +99,7 @@
     tcp_recv(self.pcb, tcp_recv_callback);
     tcp_sent(self.pcb, tcp_sent_callback);
     tcp_err(self.pcb, tcp_err_callback);
-    TFLogModuleDebug(@"TSTCPSocket", @"TCP pcb callbacks set");
+    TFLogModuleDebug(@"LWTCPSocket", @"TCP pcb callbacks set");
 }
 
 #pragma mark - Private Methods
@@ -105,11 +120,11 @@
 
     if (abort) {
         tcp_abort(self.pcb);
-        TFLogModuleWarn(@"TSTCPSocket", @"Connection aborted");
+        TFLogModuleWarn(@"LWTCPSocket", @"Connection aborted");
     } else {
         err_t error = tcp_close(self.pcb);
         if (error != ERR_OK) {
-            TFLogModuleError(@"TSTCPSocket", @"tcp_close failed: %d, aborting instead", error);
+            TFLogModuleError(@"LWTCPSocket", @"tcp_close failed: %d, aborting instead", error);
             tcp_abort(self.pcb);
         }
     }
@@ -129,7 +144,7 @@
     if (!self.pcb || !data || data.length == 0) return;
 
     if (data.length > UINT16_MAX) {
-        TFLogModuleError(@"TSTCPSocket", @"Data too large: %lu bytes", (unsigned long)data.length);
+        TFLogModuleError(@"LWTCPSocket", @"Data too large: %lu bytes", (unsigned long)data.length);
         [self closeInternal];
         return;
     }
@@ -139,14 +154,14 @@
 
     err_t error = tcp_write(self.pcb, dataptr, length, TCP_WRITE_FLAG_COPY);
     if (error != ERR_OK) {
-        TFLogModuleError(@"TSTCPSocket", @"tcp_write failed: %d", error);
+        TFLogModuleError(@"LWTCPSocket", @"tcp_write failed: %d", error);
         [self closeInternal];
         return;
     }
 
     error = tcp_output(self.pcb);
     if (error != ERR_OK) {
-        TFLogModuleError(@"TSTCPSocket", @"tcp_output failed: %d", error);
+        TFLogModuleError(@"LWTCPSocket", @"tcp_output failed: %d", error);
     }
 }
 
@@ -221,7 +236,7 @@
 
     switch (error) {
         case ERR_RST:
-            TFLogModuleWarn(@"TSTCPSocket", @"Connection reset by peer");
+            TFLogModuleWarn(@"LWTCPSocket", @"Connection reset by peer");
             if (self.delegate && [self.delegate respondsToSelector:@selector(socketDidReset:)]) {
                 dispatch_async([self effectiveDelegateQueue], ^{
                     [self.delegate socketDidReset:self];
@@ -229,7 +244,7 @@
             }
             break;
         case ERR_ABRT:
-            TFLogModuleError(@"TSTCPSocket", @"Connection aborted");
+            TFLogModuleError(@"LWTCPSocket", @"Connection aborted");
             if (self.delegate && [self.delegate respondsToSelector:@selector(socketDidAbort:)]) {
                 dispatch_async([self effectiveDelegateQueue], ^{
                     [self.delegate socketDidAbort:self];
@@ -237,7 +252,7 @@
             }
             break;
         case ERR_CLSD:
-            TFLogModuleInfo(@"TSTCPSocket", @"Connection closed");
+            TFLogModuleInfo(@"LWTCPSocket", @"Connection closed");
             if (self.delegate && [self.delegate respondsToSelector:@selector(socketDidClose:)]) {
                 dispatch_async([self effectiveDelegateQueue], ^{
                     [self.delegate socketDidClose:self];
@@ -245,7 +260,7 @@
             }
             break;
         default:
-            TFLogModuleError(@"TSTCPSocket", @"Unknown error: %d", error);
+            TFLogModuleError(@"LWTCPSocket", @"Unknown error: %d", error);
             break;
     }
 }
@@ -274,7 +289,7 @@
     uint16_t totalLength = pbuf->tot_len;
     NSMutableData *packetData = [NSMutableData dataWithLength:totalLength];
     if (!packetData) {
-        TFLogModuleError(@"TSTCPSocket", @"Failed to allocate data for %d bytes", totalLength);
+        TFLogModuleError(@"LWTCPSocket", @"Failed to allocate data for %d bytes", totalLength);
         pbuf_free(pbuf);
         return;
     }
@@ -298,7 +313,7 @@
 
 static err_t tcp_recv_callback(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err) {
     if (!arg) { if (p) pbuf_free(p); tcp_abort(tpcb); return ERR_ABRT; }
-    TSTCPSocket *socket = (__bridge TSTCPSocket *)arg;
+    LWTCPSocket *socket = (__bridge LWTCPSocket *)arg;
     if (!socket) { if (p) pbuf_free(p); tcp_abort(tpcb); return ERR_ABRT; }
 
     dispatch_async(socket.queue, ^{
@@ -309,7 +324,7 @@ static err_t tcp_recv_callback(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, 
 
 static err_t tcp_sent_callback(void *arg, struct tcp_pcb *tpcb, u16_t len) {
     if (!arg) { tcp_abort(tpcb); return ERR_ABRT; }
-    TSTCPSocket *socket = (__bridge TSTCPSocket *)arg;
+    LWTCPSocket *socket = (__bridge LWTCPSocket *)arg;
     if (!socket) { tcp_abort(tpcb); return ERR_ABRT; }
 
     dispatch_async(socket.queue, ^{
@@ -320,7 +335,7 @@ static err_t tcp_sent_callback(void *arg, struct tcp_pcb *tpcb, u16_t len) {
 
 static void tcp_err_callback(void *arg, err_t err) {
     if (!arg) return;
-    TSTCPSocket *socket = (__bridge TSTCPSocket *)arg;
+    LWTCPSocket *socket = (__bridge LWTCPSocket *)arg;
     if (socket) {
         dispatch_async(socket.queue, ^{
             [socket handleError:err];

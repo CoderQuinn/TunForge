@@ -1,5 +1,5 @@
 //
-//  TSIPStack.h
+//  LWIPStack.h
 //  TunForge
 //
 //  Created by MagicianQuinn on 2025/12/13.
@@ -7,7 +7,7 @@
 
 #import <Foundation/Foundation.h>
 
-@class TSTCPSocket;
+@class LWTCPSocket;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -18,11 +18,11 @@ typedef void(^OutboundHandler)(NSData * _Nullable packet, int family);
 @protocol TSIPStackDelegate <NSObject>
 
 /// Called when a new inbound TCP connection is accepted.
-- (void)didAcceptTCPSocket:(TSTCPSocket * _Nonnull)socket;
+- (void)didAcceptTCPSocket:(LWTCPSocket * _Nonnull)socket;
 
 @end
 
-@interface TSIPStack : NSObject
+@interface LWIPStack : NSObject
 
 /// Delegate for inbound TCP connection events.
 @property (nullable, nonatomic, weak) id<TSIPStackDelegate> delegate;
@@ -48,7 +48,7 @@ typedef void(^OutboundHandler)(NSData * _Nullable packet, int family);
 #pragma mark - Configuration
 
 /// Configure IPv4 parameters before the stack becomes active.
-/// Intended for virtual network setups (e.g. 192.168.0.0/16).
+/// Intended for virtual network setups (e.g. 240.0.0.0/4).
 - (void)configureIPv4WithIP:(NSString *)ipAddress
                     netmask:(NSString *)netmask
                          gw:(NSString *)gateway;

@@ -1,12 +1,12 @@
 //
-//  TSIPStack.m
+//  LWIPStack.m
 //  TunForge
 //
 //  Created by MagicianQuinn on 2025/12/15.
 //
 
-#import "TSIPStack.h"
-#import "TSTCPSocket.h"
+#import "LWIPStack.h"
+#import "LWTCPSocket.h"
 #import "TFLog.h"
 #include "lwip/init.h"
 #include "lwip/tcp.h"
@@ -14,7 +14,7 @@
 #include "lwip/netif.h"
 #include <arpa/inet.h>
 
-@interface TSIPStack ()
+@interface LWIPStack ()
 
 // Serial queue for processing all IP stack events
 @property (nonatomic, strong) dispatch_queue_t processQueue;
@@ -32,16 +32,16 @@
 
 @end
 
-@implementation TSIPStack
+@implementation LWIPStack
 
-static TSIPStack *_sharedInstance = nil;
+static LWIPStack *_sharedInstance = nil;
 
 #pragma mark - Singleton
 
 + (instancetype)defaultIPStack {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        _sharedInstance = [[TSIPStack alloc] initPrivate];
+        _sharedInstance = [[LWIPStack alloc] initPrivate];
     });
     return _sharedInstance;
 }
@@ -51,9 +51,9 @@ static TSIPStack *_sharedInstance = nil;
         self.processQueue = dispatch_queue_create("tun2socks.IPStack.queue", DISPATCH_QUEUE_SERIAL);
         dispatch_queue_set_specific(self.processQueue, (__bridge const void *)(self.processQueue), (__bridge void *)(self.processQueue), NULL);
 
-        self.configuredIP = @"192.168.0.1";
-        self.configuredNetmask = @"255.255.0.0";
-        self.configuredGateway = @"192.168.0.254";
+        self.configuredIP = @"240.0.0.1";
+        self.configuredNetmask = @"240.0.0.0";
+        self.configuredGateway = @"240.0.0.254";
 
         [self setup];
     }
@@ -61,7 +61,7 @@ static TSIPStack *_sharedInstance = nil;
 }
 
 - (instancetype)init {
-    NSAssert(NO, @"❌ Use +[TSIPStack defaultIPStack] instead of init");
+    NSAssert(NO, @"❌ Use +[LWIPStack defaultIPStack] instead of init");
     return nil;
 }
 
@@ -88,25 +88,25 @@ static TSIPStack *_sharedInstance = nil;
     if (cfg_ip && inet_aton(cfg_ip, &addr)) {
         IP4_ADDR(&ipaddr, (addr.s_addr)&0xFF, (addr.s_addr>>8)&0xFF, (addr.s_addr>>16)&0xFF, (addr.s_addr>>24)&0xFF);
     } else {
-        IP4_ADDR(&ipaddr, 192,168,0,1);
+        IP4_ADDR(&ipaddr, 240,0,0,1);
     }
 
     if (cfg_netmask && inet_aton(cfg_netmask, &nm)) {
         IP4_ADDR(&netmask, (nm.s_addr)&0xFF, (nm.s_addr>>8)&0xFF, (nm.s_addr>>16)&0xFF, (nm.s_addr>>24)&0xFF);
     } else {
-        IP4_ADDR(&netmask, 255,255,0,0);
+        IP4_ADDR(&netmask, 240,0,0,0);
     }
 
     if (cfg_gw && inet_aton(cfg_gw, &g)) {
         IP4_ADDR(&gw, (g.s_addr)&0xFF, (g.s_addr>>8)&0xFF, (g.s_addr>>16)&0xFF, (g.s_addr>>24)&0xFF);
     } else {
-        IP4_ADDR(&gw, 192,168,0,254);
+        IP4_ADDR(&gw, 240,0,0,254);
     }
 
     // Add default network interface
     self.defaultInterface = netif_add(&netif_instance, &ipaddr, &netmask, &gw, NULL, NULL, ip_input);
     if (!self.defaultInterface) {
-        TFLogModuleError(@"TSIPStack", @"Failed to initialize network interface");
+        TFLogModuleError(@"LWIPStack", @"Failed to initialize network interface");
         return;
     }
     self.defaultInterface->state = (__bridge void *)self;
@@ -118,13 +118,13 @@ static TSIPStack *_sharedInstance = nil;
     // Create listening PCB
     self.listenPcb = tcp_new();
     if (!self.listenPcb) {
-        TFLogModuleError(@"TSIPStack", @"Failed to create TCP PCB");
+        TFLogModuleError(@"LWIPStack", @"Failed to create TCP PCB");
         return;
     }
 
     err_t err = tcp_bind(self.listenPcb, IP_ADDR_ANY, 0);
     if (err != ERR_OK) {
-        TFLogModuleError(@"TSIPStack", @"TCP PCB bind failed: %d", err);
+        TFLogModuleError(@"LWIPStack", @"TCP PCB bind failed: %d", err);
         tcp_close(self.listenPcb);
         self.listenPcb = NULL;
         return;
@@ -132,14 +132,14 @@ static TSIPStack *_sharedInstance = nil;
 
     self.listenPcb = tcp_listen_with_backlog(self.listenPcb, TCP_DEFAULT_LISTEN_BACKLOG);
     if (!self.listenPcb) {
-        TFLogModuleError(@"TSIPStack", @"TCP PCB listen failed");
+        TFLogModuleError(@"LWIPStack", @"TCP PCB listen failed");
         return;
     }
 
     tcp_arg(self.listenPcb, (__bridge void *)self);
     tcp_accept(self.listenPcb, tcpAcceptCallback);
 
-    TFLogModuleInfo(@"TSIPStack", @"Network stack initialized, virtual network: %@/%@", self.configuredIP, self.configuredNetmask);
+    TFLogModuleInfo(@"LWIPStack", @"Network stack initialized, virtual network: %@/%@", self.configuredIP, self.configuredNetmask);
 }
 
 #pragma mark - Timer
@@ -186,7 +186,7 @@ static TSIPStack *_sharedInstance = nil;
 
     struct pbuf *pbufPacket = pbuf_alloc(PBUF_RAW, packet.length, PBUF_POOL);
     if (!pbufPacket) {
-        TFLogModuleError(@"TSIPStack", @"pbuf_alloc failed for %lu bytes", (unsigned long)packet.length);
+        TFLogModuleError(@"LWIPStack", @"pbuf_alloc failed for %lu bytes", (unsigned long)packet.length);
         return;
     }
     memcpy(pbufPacket->payload, packet.bytes, packet.length);
@@ -213,7 +213,7 @@ static TSIPStack *_sharedInstance = nil;
     tcp_backlog_accepted(pcb);
 
     if (self.delegate && [self.delegate respondsToSelector:@selector(didAcceptTCPSocket:)]) {
-        TSTCPSocket *socket = [[TSTCPSocket alloc] initWithTCPPcb:pcb queue:self.processQueue];
+        LWTCPSocket *socket = [[LWTCPSocket alloc] initWithTCPPcb:pcb queue:self.processQueue];
         // TODO: set delegate and delegateQueue
         if (!socket) { tcp_abort(pcb); return ERR_ABRT; }
         dispatch_async(self.delegateQueue ?: dispatch_get_main_queue(), ^{
@@ -227,7 +227,7 @@ static TSIPStack *_sharedInstance = nil;
 }
 
 static err_t tcpAcceptCallback(void *arg, struct tcp_pcb *newpcb, err_t err) {
-    TSIPStack *stack = (__bridge TSIPStack *)arg;
+    LWIPStack *stack = (__bridge LWIPStack *)arg;
     return [stack didAcceptTcpPcb:newpcb error:err];
 }
 
@@ -237,7 +237,7 @@ static err_t packetOutput(struct netif *netif, struct pbuf *p, const ip4_addr_t 
     if (!p)
         return ERR_ARG;
     
-    TSIPStack *stack = (__bridge TSIPStack *)(netif->state);
+    LWIPStack *stack = (__bridge LWIPStack *)(netif->state);
     if (!stack)
         return ERR_ARG;
 
@@ -256,7 +256,7 @@ static err_t packetOutput(struct netif *netif, struct pbuf *p, const ip4_addr_t 
     uint16_t totalLength = pbuf->tot_len;
     uint8_t *bytes = malloc(totalLength);
     if (!bytes) {
-        TFLogModuleError(@"TSIPStack", @"malloc failed for %d bytes", totalLength);
+        TFLogModuleError(@"LWIPStack", @"malloc failed for %d bytes", totalLength);
         return;
     }
     pbuf_copy_partial(pbuf, bytes, totalLength, 0);
