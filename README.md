@@ -19,14 +19,14 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/CoderQuinn/TunForge", from: "0.0.2")
+    .package(url: "https://github.com/CoderQuinn/TunForge", from: "0.0.3")
 ]
 ```
 
 Or add via Xcode:
 1. File → Add Package Dependencies
 2. Enter: `https://github.com/CoderQuinn/TunForge`
-3. Select version `0.0.2` or later
+3. Select version `0.0.3` or later
 
 ## Quick Start
 
