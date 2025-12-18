@@ -58,5 +58,11 @@ let package = Package(
             ],
             path: "Sources/TunForge"
         ),
+        // Test target
+        .testTarget(
+            name: "TunForgeTests",
+            dependencies: ["TunForge"],
+            path: "Tests/TunForgeTests"
+        ),
     ]
 )
