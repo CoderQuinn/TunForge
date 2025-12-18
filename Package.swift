@@ -4,11 +4,10 @@ import PackageDescription
 let package = Package(
     name: "TunForge",
     platforms: [
-        .iOS(.v12),
+        .iOS(.v13),
         .macOS(.v13),
     ],
     products: [
-        // Swift library
         .library(
             name: "TunForge",
             targets: ["TunForge"]

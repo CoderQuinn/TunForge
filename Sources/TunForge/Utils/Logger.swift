@@ -32,30 +32,30 @@ public enum TunForgeLogger {
     /// Info level log
     public static func info(_ msg: String) {
         ensureSetup()
-        DDLogInfo(msg)
+        DDLogInfo(DDLogMessageFormat(stringLiteral: msg))
     }
 
     /// Debug level log
     public static func debug(_ msg: String) {
         ensureSetup()
-        DDLogDebug(msg)
+        DDLogDebug(DDLogMessageFormat(stringLiteral: msg))
     }
 
     /// Error level log
     public static func error(_ msg: String) {
         ensureSetup()
-        DDLogError(msg)
+        DDLogError(DDLogMessageFormat(stringLiteral: msg))
     }
 
     /// Warning level log
     public static func warning(_ msg: String) {
         ensureSetup()
-        DDLogWarn(msg)
+        DDLogWarn(DDLogMessageFormat(stringLiteral: msg))
     }
 
     /// Verbose level log
     public static func verbose(_ msg: String) {
         ensureSetup()
-        DDLogVerbose(msg)
+        DDLogVerbose(DDLogMessageFormat(stringLiteral: msg))
     }
 }
