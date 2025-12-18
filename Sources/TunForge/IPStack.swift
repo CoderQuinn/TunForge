@@ -13,4 +13,10 @@ public protocol IPStackDelegate: AnyObject {
 
 extension IPStackDelegate {
     public func stack(_ stack: IPStack, didAcceptTCPSocket socket: TCPSocket) {}
+/// Delegate for IP stack events (bridged to ObjC TSIPStackDelegate)
+public typealias IPStackDelegate = TSIPStackDelegate
+
+/// Provide a default empty implementation so conformers can implement it optionally
+public extension TSIPStackDelegate {
+    func didAcceptTCPSocket(_ socket: TCPSocket) {}
 }
