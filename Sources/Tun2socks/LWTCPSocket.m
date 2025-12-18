@@ -40,11 +40,11 @@
         // Mark queue specific to allow isOnSocketQueue checks
         dispatch_queue_set_specific(_queue, (__bridge const void *)(_queue), (__bridge void *)(_queue), NULL);
 
-        _sourcePort = pcb->remote_port;
-        _sourceAddress = [self formatIPAddress:pcb->remote_ip.addr];
+        _sourcePort = pcb->local_port;
+        _sourceAddress = [self formatIPAddress:pcb->local_ip.addr];
 
-        _destinationPort = pcb->local_port;
-        _destinationAddress = [self formatIPAddress:pcb->local_ip.addr];
+        _destinationPort = pcb->remote_port;
+        _destinationAddress = [self formatIPAddress:pcb->remote_ip.addr];
 
         [self setupTCPPCB];
         TFLogModuleInfo(@"LWTCPSocket", @"Initialized successfully");
