@@ -9,8 +9,6 @@ A Swift-friendly wrapper around the lightweight IP (lwIP) stack, designed for bu
 - ✅ **Direct ObjC → Swift mapping** - Zero overhead, pure interoperability
 - ✅ **TCP connection management** - Full TCP state machine with delegate callbacks
 - ✅ **Thread-safe** - Internal serial queue for lwIP processing
-- ✅ **IPv4 support** - Configurable virtual network (e.g., 240.0.0.0/4)
-- ✅ **Network Extension ready** - Perfect for PacketTunnelProvider
 - ✅ **Lightweight** - Minimal dependencies (CocoaLumberjack for logging)
 
 ## Installation
@@ -76,39 +74,6 @@ class MyStackDelegate: NSObject, TSIPStackDelegate {
 stack.delegate = MyStackDelegate()
 ```
 
-### Network Extension Integration
-
-```swift
-import NetworkExtension
-import TunForge
-
-class PacketTunnelProvider: NEPacketTunnelProvider {
-    
-    var ipStack: IPStack?
-    
-    override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
-        
-        // Configure stack
-        ipStack = IPStack.defaultIPStack()
-        ipStack?.configureIPv4(withIP: "240.0.0.2", netmask: "255.0.0.0", gateway: "240.0.0.1")
-        
-        // Handle outbound
-        ipStack?.outboundHandler = { [weak self] packet, family in
-            self?.packetFlow.writePackets([packet], withProtocols: [NSNumber(value: family)])
-        }
-        
-        // Start reading packets
-        packetFlow.readPackets { [weak self] packets, protocols in
-            packets.forEach { self?.ipStack?.receivedPacket($0) }
-            self?.packetFlow.readPackets(completionHandler: /* recursive */)
-        }
-        
-        ipStack?.resumeTimer()
-        completionHandler(nil)
-    }
-}
-```
-
 ## Architecture
 
 ```
@@ -147,11 +112,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
 ## Roadmap
 
-- [ ] UDP socket support
 - [ ] IPv6 support
-- [ ] DNS resolver integration
-- [ ] Proxy protocol handlers (SOCKS5, HTTP, Shadowsocks)
-- [ ] GeoIP-based routing rules
 - [ ] Traffic statistics and connection management
 
 ## Contributing
