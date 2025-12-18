@@ -3,7 +3,7 @@
 **Lightweight IP stack for iOS/macOS on lwIP.**
 
 ## Quick Start
-- Add via SwiftPM: `.package(url: "https://github.com/YOUR_REPO/TunForge", from: "0.2.0")`
+- Add via SwiftPM: `.package(url: "https://github.com/CoderQuinn/TunForg", from: "0.0.2")`
 - Import and configure:
 ```swift
 import TunForge
