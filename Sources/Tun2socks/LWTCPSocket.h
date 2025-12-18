@@ -41,7 +41,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// Local (source) IPv4 address as dotted decimal string (e.g., "192.168.1.1").
 @property (nonatomic, copy, readonly) NSString *sourceAddress;
 
-/// Remote (destination) IPv4 address as dotted decimal string (e.g., "192.168.1.1").
+/// Local (source) IPv4 address as dotted decimal string (derived from pcb->local_ip).
 @property (nonatomic, copy, readonly) NSString *destinationAddress;
 
 /// Local (source) TCP port.
