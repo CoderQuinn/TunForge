@@ -9,6 +9,7 @@
 #import "TFLog.h"
 #include "lwip/tcp.h"
 #include <string.h>
+#include <arpa/inet.h>
 
 @interface LWTCPSocket ()
 @property (nonatomic, assign) struct tcp_pcb *pcb;
@@ -40,12 +41,10 @@
         dispatch_queue_set_specific(_queue, (__bridge const void *)(_queue), (__bridge void *)(_queue), NULL);
 
         _sourcePort = pcb->remote_port;
-        struct in_addr srcIP = {pcb->remote_ip.addr};
-        _sourceAddress = srcIP;
+        _sourceAddress = [self formatIPAddress:pcb->remote_ip.addr];
 
         _destinationPort = pcb->local_port;
-        struct in_addr dstIP = {pcb->local_ip.addr};
-        _destinationAddress = dstIP;
+        _destinationAddress = [self formatIPAddress:pcb->local_ip.addr];
 
         [self setupTCPPCB];
         TFLogModuleInfo(@"LWTCPSocket", @"Initialized successfully");
@@ -103,6 +102,13 @@
 }
 
 #pragma mark - Private Methods
+
+- (NSString *)formatIPAddress:(uint32_t)addr {
+    // Convert from network byte order to host byte order
+    uint32_t hostAddr = ntohl(addr);
+    uint8_t *bytes = (uint8_t *)&hostAddr;
+    return [NSString stringWithFormat:@"%d.%d.%d.%d", bytes[0], bytes[1], bytes[2], bytes[3]];
+}
 
 - (dispatch_queue_t)effectiveDelegateQueue {
     return self.delegateQueue ?: dispatch_get_main_queue();
