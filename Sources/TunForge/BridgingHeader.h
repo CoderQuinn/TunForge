@@ -8,6 +8,7 @@
 #ifndef Header_h
 #define Header_h
 
+#import "LWIPStackConfig.h"
 #import "LWIPStack.h"
 #import "LWTCPSocket.h"
 

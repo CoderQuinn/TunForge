@@ -32,7 +32,8 @@ jobs:
       - name: Swift Build
         run: |
           swift --version
-          swift build -v
+          # Build TunForge target (ObjC, Swift-compatible)
+            swift build -v --target TunForge
 
       - name: Swift Test
         run: |
