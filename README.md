@@ -6,6 +6,7 @@ A Swift-friendly Objective‑C API over the lightweight IP (lwIP) stack, designe
 
 ## Features
 
+- ✅ **Swift-friendly typealiases** - `TSIPStack` and `TSTCPSocket` with protocol extensions
 - ✅ **Direct ObjC → Swift mapping** - Zero overhead, pure interoperability
 - ✅ **TCP connection management** - Full TCP state machine with delegate callbacks
 - ✅ **Thread-safe** - Internal serial queue for lwIP processing
@@ -66,35 +67,54 @@ Notes:
 ```swift
 import TunForge
 
+// Use Swift-friendly typealiases
 class MyStackDelegate: NSObject, TSIPStackDelegate {
-    func didAcceptTCPSocket(_ socket: LWTCPSocket) {
+    // Optional delegate methods have default no-op implementations
+    func didAcceptTCPSocket(_ socket: TSTCPSocket) {
         print("New TCP connection: \(socket.destinationAddress):\(socket.destinationPort)")
-        socket.delegate = self as? TSTCPSocketDelegate
+        socket.delegate = MySocketDelegate()
         socket.delegateQueue = .main
+    }
+}
+
+class MySocketDelegate: NSObject, TSTCPSocketDelegate {
+    // All delegate methods are optional with default implementations
+    func socket(_ socket: TSTCPSocket, didReadData data: Data) {
+        print("Received \(data.count) bytes")
+    }
+    
+    func socketDidClose(_ socket: TSTCPSocket) {
+        print("Socket closed")
     }
 }
 
 let queue = DispatchQueue(label: "com.example.lwip")
 let cfg = LWIPStackConfig.config(withQueue: queue, ipv4Settings: nil)
-let stack = LWIPStack.defaultIPStack(with: cfg)
+let stack: TSIPStack = LWIPStack.defaultIPStack(with: cfg)
 stack.delegate = MyStackDelegate()
 ```
 
 ## Architecture
 
 ```
-┌─────────────────────────────────┐
-│   Public API (ObjC, Swift-ready)│
-│   - LWIPStack (singleton)       │
-│   - LWTCPSocket (connections)   │
-└────────────┬────────────────────┘
+┌─────────────────────────────────────┐
+│   Swift Layer (Optional)            │
+│   - TSIPStack, TSTCPSocket          │
+│   - Protocol extensions (defaults)  │
+└────────────┬────────────────────────┘
              │
-┌────────────▼────────────────────┐
-│   lwIP Stack (C)                │
-│   - TCP/IP processing           │
-│   - Packet routing              │
-│   - Timer management            │
-└──────────────────────────────────┘
+┌────────────▼────────────────────────┐
+│   ObjC API (TunForgeCore)           │
+│   - LWIPStack (singleton)           │
+│   - LWTCPSocket (connections)       │
+└────────────┬────────────────────────┘
+             │
+┌────────────▼────────────────────────┐
+│   lwIP Stack (C)                    │
+│   - TCP/IP processing               │
+│   - Packet routing                  │
+│   - Timer management                │
+└──────────────────────────────────────┘
 ```
 
 ## Requirements
@@ -130,6 +150,15 @@ Built on top of [lwIP](https://savannah.nongnu.org/projects/lwip/) - A Lightweig
 
 ## Migration Notes (0.0.4)
 
-- Swift wrapper module removed. Import `TunForge` directly (Objective‑C target is Swift‑ready).
-- Removed Swift typealiases `IPStack` and `TCPSocket`. Use `LWIPStack` and `LWTCPSocket`.
-- IPv4 and queue configuration is now init-only via `LWIPStackConfig`/`IPv4Settings` and applied on first `defaultIPStack(with:)`.
+### Breaking Changes
+- **Target rename**: `TunForgeCore` → `TunForge` (ObjC) + `TunForge` (Swift typealiases)
+- **Init-only configuration**: IPv4 and queue settings must be provided on first `defaultIPStack(with:)` call
+- **Removed APIs**: Old `IPStack` and `TCPSocket` Swift typealiases removed
+
+### New Features
+- **Swift typealiases**: Use `TSIPStack` and `TSTCPSocket` for Swift-friendly names
+- **Protocol extensions**: All delegate methods have default no-op implementations
+- **Simplified imports**: Just `import TunForge` for both ObjC and Swift
+
+### Direct ObjC API (Still Available)
+You can still use `LWIPStack` and `LWTCPSocket` directly if you prefer the ObjC names.
