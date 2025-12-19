@@ -7,6 +7,7 @@
 
 #import "LWIPStack.h"
 #import "LWTCPSocket.h"
+#import "LWIPStackConfig.h"
 #import "TFLog.h"
 #include "lwip/init.h"
 #include "lwip/tcp.h"
@@ -30,32 +31,72 @@
 @property (nonatomic, copy) NSString *configuredNetmask;
 @property (nonatomic, copy) NSString *configuredGateway;
 
+// Startup state
+@property (nonatomic, assign) BOOL started;
+
 @end
 
 @implementation LWIPStack
 
 static LWIPStack *_sharedInstance = nil;
+static dispatch_once_t _sharedOnceToken;
+static dispatch_queue_t _Nullable _initialProcessQueue = nil;
+static NSString *_Nullable _initialIP = nil;
+static NSString *_Nullable _initialNetmask = nil;
+static NSString *_Nullable _initialGateway = nil;
 
 #pragma mark - Singleton
 
 + (instancetype)defaultIPStack {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
+    LWIPStackConfig *cfg = [LWIPStackConfig configWithQueue:nil ipv4Settings:nil];
+    return [self defaultIPStackWithConfig:cfg];
+}
+
++ (instancetype)defaultIPStackWithConfig:(LWIPStackConfig *)config {
+    LWIPStackConfig *appliedConfig = config ?: [LWIPStackConfig configWithQueue:nil ipv4Settings:nil];
+    dispatch_once(&_sharedOnceToken, ^{
+        [self configureDefaultWithConfig:appliedConfig];
         _sharedInstance = [[LWIPStack alloc] initPrivate];
     });
     return _sharedInstance;
 }
+ 
+// Convenience: configure queue then return singleton
++ (instancetype)defaultIPStackWithProcessQueue:(dispatch_queue_t)queue {
+    LWIPStackConfig *cfg = [LWIPStackConfig configWithQueue:queue ipv4Settings:nil];
+    return [self defaultIPStackWithConfig:cfg];
+}
+
+// Convenience: configure IPv4 settings then return singleton
++ (instancetype)defaultIPStackWithIPv4Settings:(IPv4Settings *)ipv4Settings {
+    LWIPStackConfig *cfg = [LWIPStackConfig configWithQueue:nil ipv4Settings:ipv4Settings];
+    return [self defaultIPStackWithConfig:cfg];
+}
+
+
++ (void)configureDefaultWithConfig:(LWIPStackConfig *)config {
+    if (!config) { return; }
+    if (config.processQueue) { _initialProcessQueue = config.processQueue; }
+    IPv4Settings *v4 = config.ipv4Settings;
+    if (v4.ipAddress)    { _initialIP = [v4.ipAddress copy]; }
+    if (v4.netmask)      { _initialNetmask = [v4.netmask copy]; }
+    if (v4.gateway)      { _initialGateway = [v4.gateway copy]; }
+}
 
 - (instancetype)initPrivate {
     if (self = [super init]) {
-        self.processQueue = dispatch_queue_create("tun2socks.IPStack.queue", DISPATCH_QUEUE_SERIAL);
-        dispatch_queue_set_specific(self.processQueue, (__bridge const void *)(self.processQueue), (__bridge void *)(self.processQueue), NULL);
+        self.processQueue = _initialProcessQueue ?: dispatch_queue_create("TunForge.IPStack.queue", DISPATCH_QUEUE_SERIAL);
+        dispatch_queue_set_specific(self.processQueue,
+                                    (__bridge const void *)(self.processQueue),
+                                    (__bridge void *)(self.processQueue),
+                                    NULL);
 
-        self.configuredIP = @"240.0.0.1";
-        self.configuredNetmask = @"240.0.0.0";
-        self.configuredGateway = @"240.0.0.254";
+        self.configuredIP = _initialIP ?: @"240.0.0.1";
+        self.configuredNetmask = _initialNetmask ?: @"240.0.0.0";
+        self.configuredGateway = _initialGateway ?: @"240.0.0.254";
 
         [self setup];
+        self.started = YES;
     }
     return self;
 }
@@ -65,12 +106,6 @@ static LWIPStack *_sharedInstance = nil;
     return nil;
 }
 
-
-- (void)configureIPv4WithIP:(NSString *)ipAddress netmask:(NSString *)netmask gw:(NSString *)gateway {
-    self.configuredIP = [ipAddress copy];
-    self.configuredNetmask = [netmask copy];
-    self.configuredGateway = [gateway copy];
-}
 
 #pragma mark - lwIP Setup
 
@@ -206,6 +241,8 @@ static LWIPStack *_sharedInstance = nil;
     dispatch_assert_queue(self.processQueue);
 }
 
+// (Queue configuration was previously exposed; now only pre-start configuration is supported.)
+
 #pragma mark - TCP Accept Handling
 
 - (err_t)didAcceptTcpPcb:(struct tcp_pcb *)pcb error:(err_t)err {
@@ -265,6 +302,20 @@ static err_t packetOutput(struct netif *netif, struct pbuf *p, const ip4_addr_t 
     if (self.outboundHandler) {
         self.outboundHandler(packet, AF_INET);
     }
+}
+
+#pragma mark - Readonly Properties (Computed)
+
+- (IPv4Settings *)ipv4Settings {
+    IPv4Settings *v4 = [IPv4Settings new];
+    v4.ipAddress = self.configuredIP;
+    v4.netmask = self.configuredNetmask;
+    v4.gateway = self.configuredGateway;
+    return v4;
+}
+
+- (LWIPStackConfig *)config {
+    return [LWIPStackConfig configWithQueue:self.processQueue ipv4Settings:self.ipv4Settings];
 }
 
 @end

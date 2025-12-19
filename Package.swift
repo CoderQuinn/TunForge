@@ -13,9 +13,7 @@ let package = Package(
             targets: ["TunForge"]
         ),
     ],
-    dependencies: [
-        .package(url: "https://github.com/CocoaLumberjack/CocoaLumberjack", from: "3.9.0"),
-    ],
+    dependencies: [],
     targets: [
         // lwIP C target
         .target(
@@ -35,12 +33,12 @@ let package = Package(
                 .define("LWIP_MACOS", .when(platforms: [.macOS])),
             ]
         ),
-        // ObjC wrapper target
+        // ObjC core (exposed directly as TunForge)
         .target(
-            name: "Tun2Socks",
+            name: "TunForge",
             dependencies: ["Lwip"],
-            path: "Sources/Tun2socks",
-            publicHeadersPath: ".", // ObjC headers
+            path: "Sources/TunForge",
+            publicHeadersPath: ".",
             cSettings: [
                 .headerSearchPath("."),
                 .headerSearchPath("Metrics"),
@@ -49,14 +47,11 @@ let package = Package(
                 .headerSearchPath("../Lwip/custom/include"),
             ]
         ),
-        // Swift high-level module
-        .target(
-            name: "TunForge",
-            dependencies: [
-                "Tun2Socks",
-                .product(name: "CocoaLumberjackSwift", package: "CocoaLumberjack"),
-            ],
-            path: "Sources/TunForge"
+        // Tests
+        .testTarget(
+            name: "TunForgeTests",
+            dependencies: ["TunForge"],
+            path: "Tests/TunForgeTests"
         ),
     ]
 )

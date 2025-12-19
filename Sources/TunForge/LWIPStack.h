@@ -22,6 +22,8 @@ typedef void(^OutboundHandler)(NSData * _Nullable packet, int family);
 
 @end
 
+@class LWIPStackConfig, IPv4Settings;
+
 @interface LWIPStack : NSObject
 
 /// Delegate for inbound TCP connection events.
@@ -34,24 +36,27 @@ typedef void(^OutboundHandler)(NSData * _Nullable packet, int family);
 /// Handler used to send raw IP packets out of the stack.
 @property (nonatomic, copy) OutboundHandler outboundHandler;
 
-/// Dedicated serial queue for all lwIP / IP stack processing.
+@property (nonatomic, strong, readonly) LWIPStackConfig *config;
+/// Exposed as read-only; mutated internally.
 @property (nonatomic, strong, readonly) dispatch_queue_t processQueue;
+/// Dedicated serial queue for all lwIP / IP stack processing.
+@property (nonatomic, strong, readonly) IPv4Settings *ipv4Settings;
 
 #pragma mark - Lifecycle
 
 /// Shared singleton instance.
 + (instancetype)defaultIPStack;
 
+/// Returns the singleton, applying the config only on first call.
+/// - If the singleton already exists, the config is ignored and the existing instance is returned.
++ (instancetype)defaultIPStackWithConfig:(LWIPStackConfig *)config;
+
++ (instancetype)defaultIPStackWithProcessQueue:(dispatch_queue_t)queue;
+
++ (instancetype)defaultIPStackWithIPv4Settings:(IPv4Settings *)ipv4Settings;
+
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;
-
-#pragma mark - Configuration
-
-/// Configure IPv4 parameters before the stack becomes active.
-/// Intended for virtual network setups (e.g. 240.0.0.0/4).
-- (void)configureIPv4WithIP:(NSString *)ipAddress
-                    netmask:(NSString *)netmask
-                         gw:(NSString *)gateway;
 
 #pragma mark - Runtime Control
 

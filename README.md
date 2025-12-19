@@ -2,14 +2,14 @@
 
 **Lightweight lwIP-based IP stack for iOS/macOS VPN and Network Extensions.**
 
-A Swift-friendly wrapper around the lightweight IP (lwIP) stack, designed for building VPN clients, packet tunnel providers, and network extensions on Apple platforms.
+A Swift-friendly Objective‑C API over the lightweight IP (lwIP) stack, designed for Network Extensions on Apple platforms.
 
 ## Features
 
 - ✅ **Direct ObjC → Swift mapping** - Zero overhead, pure interoperability
 - ✅ **TCP connection management** - Full TCP state machine with delegate callbacks
 - ✅ **Thread-safe** - Internal serial queue for lwIP processing
-- ✅ **Lightweight** - Minimal dependencies (CocoaLumberjack for logging)
+- ✅ **Lightweight** - Zero external dependencies (uses os.log for NE-safe logging)
 
 ## Installation
 
@@ -19,58 +19,64 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/CoderQuinn/TunForge", from: "0.0.3")
+    .package(url: "https://github.com/CoderQuinn/TunForge", from: "0.0.4")
 ]
 ```
 
 Or add via Xcode:
 1. File → Add Package Dependencies
 2. Enter: `https://github.com/CoderQuinn/TunForge`
-3. Select version `0.0.3` or later
+3. Select version `0.0.4` or later
 
 ## Quick Start
 
-### Basic Usage
+### Basic Usage (Swift)
 
 ```swift
 import TunForge
 
-// Get the IP stack singleton
-let stack = IPStack.defaultIPStack()
+// Build configuration (applied only once at first access)
+let queue = DispatchQueue(label: "com.example.lwip")
+let ipv4 = IPv4Settings(ipAddress: "240.0.0.2", netmask: "255.0.0.0", gateway: "240.0.0.1")
+let config = LWIPStackConfig.config(withQueue: queue, ipv4Settings: ipv4)
 
-// Configure virtual network
-stack.configureIPv4(
-    withIP: "240.0.0.2", 
-    netmask: "255.0.0.0", 
-    gateway: "240.0.0.1"
-)
+// Create or get the singleton (config effective only on first call)
+let stack = LWIPStack.defaultIPStack(with: config)
 
 // Handle outbound packets
 stack.outboundHandler = { packet, family in
-    // Send IP packet to real network
+    guard let packet else { return }
+    // Send IP packet to the real network interface
     sendToNetwork(packet)
 }
 
-// Inject inbound packets
+// Inject inbound packets from your TUN/source
 stack.receivedPacket(ipPacketData)
 
-// Start processing
+// Drive lwIP timers (call once to start the periodic timer)
 stack.resumeTimer()
 ```
 
-### TCP Socket Handling
+Notes:
+- Configuration is init-only: subsequent calls to `defaultIPStack(with:)` ignore the config if the singleton already exists.
+- If you are fine with defaults, you can use `LWIPStack.defaultIPStack()` directly.
+
+### TCP Socket Handling (Swift)
 
 ```swift
-// Set up delegate
+import TunForge
+
 class MyStackDelegate: NSObject, TSIPStackDelegate {
-    func didAcceptTCPSocket(_ socket: TCPSocket) {
+    func didAcceptTCPSocket(_ socket: LWTCPSocket) {
         print("New TCP connection: \(socket.destinationAddress):\(socket.destinationPort)")
-        
-        socket.delegate = self
+        socket.delegate = self as? TSTCPSocketDelegate
         socket.delegateQueue = .main
     }
 }
 
+let queue = DispatchQueue(label: "com.example.lwip")
+let cfg = LWIPStackConfig.config(withQueue: queue, ipv4Settings: nil)
+let stack = LWIPStack.defaultIPStack(with: cfg)
 stack.delegate = MyStackDelegate()
 ```
 
@@ -78,22 +84,16 @@ stack.delegate = MyStackDelegate()
 
 ```
 ┌─────────────────────────────────┐
-│   Swift Layer (Public API)      │
-│   - IPStack (typealias)          │
-│   - TCPSocket (typealias)        │
+│   Public API (ObjC, Swift-ready)│
+│   - LWIPStack (singleton)       │
+│   - LWTCPSocket (connections)   │
 └────────────┬────────────────────┘
              │
 ┌────────────▼────────────────────┐
-│   ObjC Bridge Layer              │
-│   - LWIPStack (singleton)        │
-│   - LWTCPSocket (connections)    │
-└────────────┬────────────────────┘
-             │
-┌────────────▼────────────────────┐
-│   lwIP Stack (C)                 │
-│   - TCP/IP processing            │
-│   - Packet routing               │
-│   - Timer management             │
+│   lwIP Stack (C)                │
+│   - TCP/IP processing           │
+│   - Packet routing              │
+│   - Timer management            │
 └──────────────────────────────────┘
 ```
 
@@ -106,7 +106,7 @@ stack.delegate = MyStackDelegate()
 
 ## Limitations
 
-- IPv4 only (UDP/IPv6 support planned)
+- IPv4 only (Fragmented UDP/IPv6 support planned)
 - Single network interface
 - No DHCP server
 
@@ -114,6 +114,7 @@ stack.delegate = MyStackDelegate()
 
 - [ ] IPv6 support
 - [ ] Traffic statistics and connection management
+- [ ] Fragmented UDP
 
 ## Contributing
 
@@ -126,3 +127,9 @@ Apache License2.0. See [LICENSE](LICENSE) for details.
 ## Credits
 
 Built on top of [lwIP](https://savannah.nongnu.org/projects/lwip/) - A Lightweight TCP/IP stack.
+
+## Migration Notes (0.0.4)
+
+- Swift wrapper module removed. Import `TunForge` directly (Objective‑C target is Swift‑ready).
+- Removed Swift typealiases `IPStack` and `TCPSocket`. Use `LWIPStack` and `LWTCPSocket`.
+- IPv4 and queue configuration is now init-only via `LWIPStackConfig`/`IPv4Settings` and applied on first `defaultIPStack(with:)`.
