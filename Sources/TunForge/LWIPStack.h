@@ -11,9 +11,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// Outbound IP packet handler.
+/// Outbound IP packets handler.
 /// `family` is AF_INET or AF_INET6, or other.
-typedef void(^OutboundHandler)(NSData * _Nullable packet, int family);
+typedef void(^OutboundHandler)(NSArray<NSData * >* packets, NSArray<NSNumber *> *families);
 
 @protocol TSIPStackDelegate <NSObject>
 
@@ -34,7 +34,7 @@ typedef void(^OutboundHandler)(NSData * _Nullable packet, int family);
 @property (nonatomic, strong, nullable) dispatch_queue_t delegateQueue;
 
 /// Handler used to send raw IP packets out of the stack.
-@property (nonatomic, copy) OutboundHandler outboundHandler;
+@property (nonatomic, copy, nullable) OutboundHandler outboundHandler;
 
 @property (nonatomic, strong, readonly) LWIPStackConfig *config;
 /// Exposed as read-only; mutated internally.

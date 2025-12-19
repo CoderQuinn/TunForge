@@ -299,8 +299,10 @@ static err_t packetOutput(struct netif *netif, struct pbuf *p, const ip4_addr_t 
     pbuf_copy_partial(pbuf, bytes, totalLength, 0);
 
     NSData *packet = [[NSData alloc] initWithBytesNoCopy:bytes length:totalLength freeWhenDone:YES];
+    NSArray *packets = @[packet];
+    NSArray *versions = @[@(AF_INET)];
     if (self.outboundHandler) {
-        self.outboundHandler(packet, AF_INET);
+        self.outboundHandler(packets, versions);
     }
 }
 

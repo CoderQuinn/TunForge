@@ -12,6 +12,10 @@ let package = Package(
             name: "TunForge",
             targets: ["TunForge"]
         ),
+        .library(
+            name: "TunForgeCore",
+            targets: ["TunForgeCore"]
+        ),
     ],
     dependencies: [],
     targets: [
