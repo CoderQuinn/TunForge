@@ -28,5 +28,5 @@ void TFLogWarning(const char *msg) {
 }
 
 void TFLogVerbose(const char *msg) {
-    os_log_with_type(TFLogSubsystem(), OS_LOG_TYPE_DEFAULT, "%{public}s", msg ?: "");
+    os_log_with_type(TFLogSubsystem(), OS_LOG_TYPE_DEBUG, "%{public}s", msg ?: "");
 }
