@@ -33,12 +33,11 @@ let package = Package(
                 .define("LWIP_MACOS", .when(platforms: [.macOS])),
             ]
         ),
-        // ObjC core
+        // ObjC core (exposed directly as TunForge)
         .target(
-            name: "TunForgeCore",
+            name: "TunForge",
             dependencies: ["Lwip"],
             path: "Sources/TunForge",
-            exclude: ["TunForge.swift"],
             publicHeadersPath: ".",
             cSettings: [
                 .headerSearchPath("."),
@@ -47,13 +46,6 @@ let package = Package(
                 .headerSearchPath("../Lwip/custom"),
                 .headerSearchPath("../Lwip/custom/include"),
             ]
-        ),
-        // Swift surface
-        .target(
-            name: "TunForge",
-            dependencies: ["TunForgeCore"],
-            path: "Sources/TunForge",
-            sources: ["TunForge.swift"]
         ),
         // Tests
         .testTarget(
