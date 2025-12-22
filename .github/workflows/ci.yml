@@ -10,6 +10,7 @@ jobs:
   build:
     name: Build & Test (macOS)
     runs-on: macos-15
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,7 +18,7 @@ jobs:
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '15.1'
+          xcode-version: '16.4'
 
       - name: Cache SwiftPM
         uses: actions/cache@v4
@@ -32,8 +33,7 @@ jobs:
       - name: Swift Build
         run: |
           swift --version
-          # Build TunForge target (ObjC, Swift-compatible)
-            swift build -v --target TunForge
+          swift build -v --target TunForge
 
       - name: Swift Test
         run: |
@@ -41,10 +41,8 @@ jobs:
 
   lint:
     name: Format Check
-    runs-on: macos-13
+    runs-on: macos-15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       - name: SwiftFormat (optional)
-        run: |
-          echo "No formatter configured; skipping."
+        run: echo "No formatter configured; skipping."
