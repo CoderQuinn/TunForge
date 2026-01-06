@@ -1,0 +1,36 @@
+# Top-level defaults; per-language sections override these.
+BasedOnStyle: LLVM
+UseTab: Never
+InsertNewlineAtEOF: true
+
+---
+Language: ObjC
+# Apple-like Objective-C formatting (K&R, 4-space indent, aligned colons)
+BasedOnStyle: LLVM
+IndentWidth: 4
+ContinuationIndentWidth: 4
+ColumnLimit: 100
+PointerAlignment: Left
+BreakBeforeBraces: Attach
+AllowShortIfStatementsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+AlignAfterOpenBracket: true
+AlignTrailingComments: Always
+SpacesInContainerLiterals: false
+ObjCBlockIndentWidth: 4
+ObjCBreakBeforeNestedBlockParam: true
+ObjCSpaceAfterProperty: true
+ObjCSpaceBeforeProtocolList: true
+ObjCBinPackProtocolList: Auto
+# Keep empty lines under control
+MaxEmptyLinesToKeep: 1
+
+---
+Language: C
+# Google C style (2 spaces, 80 cols, pointer to type)
+BasedOnStyle: Google
+IndentWidth: 2
+ContinuationIndentWidth: 4
+ColumnLimit: 80
+DerivePointerAlignment: false
+PointerAlignment: Right
