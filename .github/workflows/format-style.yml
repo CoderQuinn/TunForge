@@ -2,7 +2,7 @@ name: format
 
 on:
   push:
-    branches: ["*"]
+    branches: ["main", "develop"]
   pull_request:
 
 jobs:
