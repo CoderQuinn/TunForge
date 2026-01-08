@@ -14,7 +14,7 @@ PointerAlignment: Left
 BreakBeforeBraces: Attach
 AllowShortIfStatementsOnASingleLine: false
 AllowShortFunctionsOnASingleLine: Empty
-AlignAfterOpenBracket: true
+AlignAfterOpenBracket: Align
 AlignTrailingComments: true
 SpacesInContainerLiterals: false
 ObjCBlockIndentWidth: 4
