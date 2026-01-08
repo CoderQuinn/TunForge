@@ -15,7 +15,7 @@ BreakBeforeBraces: Attach
 AllowShortIfStatementsOnASingleLine: false
 AllowShortFunctionsOnASingleLine: Empty
 AlignAfterOpenBracket: true
-AlignTrailingComments: Always
+AlignTrailingComments: true
 SpacesInContainerLiterals: false
 ObjCBlockIndentWidth: 4
 ObjCBreakBeforeNestedBlockParam: true
