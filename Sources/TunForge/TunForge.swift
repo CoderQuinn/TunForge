@@ -8,48 +8,36 @@
 import Foundation
 import TunForgeCore
 
-// MARK: - Type Aliases
+// Swift-friendly surface over TunForgeCore.
+public typealias TFIPStackSwift = TFIPStack
+public typealias TFTCPConnectionSwift = TFTCPConnection
+public typealias TFTCPConnectionInfoSwift = TFTCPConnectionInfo
+public typealias TFTCPConnectionTerminationReasonSwift = TFTCPConnectionTerminationReason
 
-/// Swift-friendly typealias for the IP stack singleton.
-public typealias TSIPStack = LWIPStack
+public extension TFIPStack {
+    /// Shared global stack (TunForge is singletons by design).
+    static var shared: TFIPStack { TFIPStack.default() }
 
-/// Swift-friendly typealias for TCP socket connections.
-public typealias TSTCPSocket = LWTCPSocket
-
-// MARK: - TSIPStackDelegate Extension
-
-/// Swift extension providing default no-op implementations for optional delegate methods.
-public extension TSIPStackDelegate {
-    func didAcceptTCPSocket(_ socket: LWTCPSocket) {
-        // Default no-op implementation
+    /// Set outbound handler with Swift-native types.
+    func setOutboundHandler(_ handler: @escaping (_ packets: [Data], _ families: [Int32]) -> Void) {
+        outboundHandler = { packets, families in
+            let swiftPackets: [Data] = packets
+            let swiftFamilies: [Int32] = families.compactMap { $0.int32Value }
+            handler(swiftPackets, swiftFamilies)
+        }
     }
 }
 
-// MARK: - TSTCPSocketDelegate Extension
-
-/// Swift extension providing default no-op implementations for optional delegate methods.
-public extension TSTCPSocketDelegate {
-    func socketDidShutdownRead(_ socket: LWTCPSocket) {
-        // Default no-op
-    }
-    
-    func socketDidReset(_ socket: LWTCPSocket) {
-        // Default no-op
-    }
-    
-    func socketDidAbort(_ socket: LWTCPSocket) {
-        // Default no-op
-    }
-    
-    func socketDidClose(_ socket: LWTCPSocket) {
-        // Default no-op
-    }
-    
-    func socket(_ socket: LWTCPSocket, didReadData data: Data) {
-        // Default no-op
-    }
-    
-    func socket(_ socket: LWTCPSocket, didWriteDataOfLength length: UInt) {
-        // Default no-op
+public extension TFTCPConnectionTerminationReason {
+    /// Human-readable reason for logging/telemetry.
+    var description: String {
+        switch self {
+        case .none: return "none"
+        case .close: return "close"
+        case .reset: return "reset"
+        case .abort: return "abort"
+        case .destroyed: return "destroyed"
+        @unknown default: return "unknown"
+        }
     }
 }

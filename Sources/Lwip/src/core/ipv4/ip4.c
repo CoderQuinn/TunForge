@@ -572,6 +572,10 @@ ip4_input(struct pbuf *p, struct netif *inp)
     }
 #endif /* LWIP_IGMP */
   } else {
+#if LWIP_TUNFORGE_IP_HOOK
+    /* TunForge: all packets are for the injected netif (TUN). */
+    netif = inp;
+#else
     /* start trying with inp. if that's not acceptable, start walking the
        list of configured netifs. */
     if (ip4_input_accept(inp)) {
@@ -598,6 +602,7 @@ ip4_input(struct pbuf *p, struct netif *inp)
 #endif /* !LWIP_SINGLE_NETIF */
       }
     }
+#endif
   }
 
 #if IP_ACCEPT_LINK_LAYER_ADDRESSING
@@ -1064,6 +1069,12 @@ ip4_output(struct pbuf *p, const ip4_addr_t *src, const ip4_addr_t *dest,
 {
   struct netif *netif;
 
+#if LWIP_TUNFORGE_IP_HOOK
+    netif = netif_default ? netif_default : netif_list;
+    if(!netif) {
+        return ERR_RTE;
+    }
+#else
   LWIP_IP_CHECK_PBUF_REF_COUNT_FOR_TX(p);
 
   if ((netif = ip4_route_src(src, dest)) == NULL) {
@@ -1072,7 +1083,7 @@ ip4_output(struct pbuf *p, const ip4_addr_t *src, const ip4_addr_t *dest,
     IP_STATS_INC(ip.rterr);
     return ERR_RTE;
   }
-
+#endif
   return ip4_output_if(p, src, dest, ttl, tos, proto, netif);
 }
 

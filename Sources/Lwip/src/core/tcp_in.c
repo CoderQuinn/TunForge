@@ -315,6 +315,22 @@ tcp_input(struct pbuf *p, struct netif *inp)
     /* Finally, if we still did not get a match, we check all PCBs that
        are LISTENing for incoming connections. */
     prev = NULL;
+#if LWIP_TUNFORGE_TCP_HOOK
+      LWIP_ASSERT("TunForge supports single listen pcb", tcp_listen_pcbs.listen_pcbs == NULL || tcp_listen_pcbs.listen_pcbs->next == NULL);
+
+      LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_input: packet for TunForge LISTENing connection.\n"));
+      lpcb = tcp_listen_pcbs.listen_pcbs;
+      if (lpcb != NULL) {
+          if ((flags & TCP_SYN) && !(flags & TCP_ACK)) {
+              /* TunForge transparent accept hook */
+              tcp_listen_input(lpcb);
+              pbuf_free(p);
+              return;
+          }
+          /* otherwise: fall through to normal lwIP logic */
+      }
+#else
+#endif
     for (lpcb = tcp_listen_pcbs.listen_pcbs; lpcb != NULL; lpcb = lpcb->next) {
       /* check if PCB is bound to specific netif */
       if ((lpcb->netif_idx != NETIF_NO_INDEX) &&
@@ -675,7 +691,12 @@ tcp_listen_input(struct tcp_pcb_listen *pcb)
     /* Set up the new PCB. */
     ip_addr_copy(npcb->local_ip, *ip_current_dest_addr());
     ip_addr_copy(npcb->remote_ip, *ip_current_src_addr());
+//    npcb->local_port = pcb->local_port;
+#if LWIP_TUNFORGE_TCP_HOOK
+    npcb->local_port = tcphdr->dest;
+#else
     npcb->local_port = pcb->local_port;
+#endif
     npcb->remote_port = tcphdr->src;
     npcb->state = SYN_RCVD;
     npcb->rcv_nxt = seqno + 1;

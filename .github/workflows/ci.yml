@@ -39,10 +39,3 @@ jobs:
         run: |
           swift test -v
 
-  lint:
-    name: Format Check
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-      - name: SwiftFormat (optional)
-        run: echo "No formatter configured; skipping."
