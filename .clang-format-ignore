@@ -1,0 +1,2 @@
+# Exclude vendored lwIP sources from formatting
+Sources/Lwip/**
