@@ -70,8 +70,8 @@ final class TunForgeCoreDriver: NSObject, TFIPStackDelegate {
         // Required for internal queue assertions.
         TFBindQueueSpecific(
             packetsQueue,
-            TFGetpacketsQueueKey(),
-            UnsafeMutableRawPointer(mutating: TFGetpacketsQueueKey())
+            TFGetPacketsQueueKey(),
+            UnsafeMutableRawPointer(mutating: TFGetPacketsQueueKey())
         )
         TFBindQueueSpecific(
             connectionsQueue,

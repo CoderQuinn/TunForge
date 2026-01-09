@@ -65,13 +65,13 @@ static TFGlobalScheduler *_instance;
 - (void)packetsPerformAsync:(dispatch_block_t _Nonnull)block {
     NSAssert(self.packetsQueue, @"Scheduler not configured");
     NSAssert(block != nil, @"process block must not be nil");
-    tf_perform_async(self.packetsQueue, TFGetpacketsQueueKey(), block);
+    tf_perform_async(self.packetsQueue, TFGetPacketsQueueKey(), block);
 }
 
 - (void)packetsPerformSync:(dispatch_block_t _Nonnull)block {
     NSAssert(self.packetsQueue, @"Scheduler not configured");
     NSAssert(block != nil, @"process block must not be nil");
-    tf_perform_sync(self.packetsQueue, TFGetpacketsQueueKey(), block);
+    tf_perform_sync(self.packetsQueue, TFGetPacketsQueueKey(), block);
 }
 
 - (void)connectionsPerformSync:(dispatch_block_t _Nonnull)block {

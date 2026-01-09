@@ -25,7 +25,7 @@ void TFAssertOnQueue(const void *key, const char *function, const char *file, in
 }
 
 // Use static storage addresses as unique keys.
-const void *TFGetpacketsQueueKey(void) {
+const void *TFGetPacketsQueueKey(void) {
     static uint8_t kProcessKey;
     return &kProcessKey;
 }
@@ -37,7 +37,7 @@ const void *TFGetConnectionsQueueKey(void) {
 
 void TFAssertOnPACKETSQueue(const char *function, const char *file, int line) {
 #if DEBUG
-    NSCAssert(TFIsOnQueue(TFGetpacketsQueueKey()),
+    NSCAssert(TFIsOnQueue(TFGetPacketsQueueKey()),
               @"Must be used on packets process queue (%s:%d %s)",
               file,
               line,
