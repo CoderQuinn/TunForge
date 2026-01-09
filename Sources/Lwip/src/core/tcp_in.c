@@ -318,7 +318,7 @@ tcp_input(struct pbuf *p, struct netif *inp)
 #if LWIP_TUNFORGE_TCP_HOOK
       LWIP_ASSERT("TunForge supports single listen pcb", tcp_listen_pcbs.listen_pcbs == NULL || tcp_listen_pcbs.listen_pcbs->next == NULL);
 
-      LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_input: packed for TunForge LISTENing connection.\n"));
+      LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_input: packet for TunForge LISTENing connection.\n"));
       lpcb = tcp_listen_pcbs.listen_pcbs;
       if (lpcb != NULL) {
           if ((flags & TCP_SYN) && !(flags & TCP_ACK)) {
