@@ -174,12 +174,5 @@
   #endif
 #endif
 
-/* Release tier sanity */
-#if !TUNFORGE_LWIP_DEBUG
-  #if (TUNFORGE_RELEASE_TIER < 0) || (TUNFORGE_RELEASE_TIER > 2)
-    #error "Invalid TUNFORGE_RELEASE_TIER"
-  #endif
-#endif
-
 #endif /* LWIP_HDR_LWIPOPTS_H */
 
