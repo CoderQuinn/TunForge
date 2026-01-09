@@ -14,7 +14,7 @@
 /// Using functions avoids Swift Concurrency warnings about imported global variables.
 ///
 
-FOUNDATION_EXPORT const void *_Nonnull TFGetpacketsQueueKey(void);
+FOUNDATION_EXPORT const void *_Nonnull TFGetPacketsQueueKey(void);
 FOUNDATION_EXPORT const void *_Nonnull TFGetConnectionsQueueKey(void);
 FOUNDATION_EXPORT void TFAssertOnPACKETSQueue(const char *_Nonnull function,
                                               const char *_Nonnull file,
