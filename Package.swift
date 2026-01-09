@@ -1,4 +1,4 @@
-// swift-tools-version:5.3
+// swift-tools-version:5.9
 import PackageDescription
 
 let package = Package(
@@ -8,20 +8,29 @@ let package = Package(
         .macOS(.v11),
     ],
     products: [
+        // Swift surface
         .library(
             name: "TunForge",
             targets: ["TunForge"]
         ),
+        // ObjC core (can be used standalone)
         .library(
             name: "TunForgeCore",
             targets: ["TunForgeCore"]
         ),
     ],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/CoderQuinn/ForgeLogKit.git", from: "0.2.0"),
+    ],
     targets: [
-        // lwIP C target
+        // =========================================================
+        // Layer 1: lwIP engine (pure C)
+        // =========================================================
         .target(
             name: "Lwip",
+            dependencies: [
+                .product(name: "ForgeLogKitC", package: "ForgeLogKit"),
+            ],
             path: "Sources/Lwip",
             exclude: [
                 "src/netif/slipif.c",
@@ -37,29 +46,38 @@ let package = Package(
                 .define("LWIP_MACOS", .when(platforms: [.macOS])),
             ]
         ),
-        // ObjC core
+
+        // =========================================================
+        // Layer 2: ObjC semantic core
+        // =========================================================
         .target(
             name: "TunForgeCore",
-            dependencies: ["Lwip"],
-            path: "Sources/TunForge",
-            exclude: ["TunForge.swift"],
-            publicHeadersPath: ".",
+            dependencies: [
+                "Lwip",
+                .product(name: "ForgeLogKitOC", package: "ForgeLogKit"),
+            ],
+            path: "Sources/TunForgeCore",
+            publicHeadersPath: "include",
             cSettings: [
-                .headerSearchPath("."),
-                .headerSearchPath("Metrics"),
                 .headerSearchPath("../Lwip/src/include"),
                 .headerSearchPath("../Lwip/custom"),
-                .headerSearchPath("../Lwip/custom/include"),
             ]
         ),
-        // Swift surface layer with typealiases and protocol extensions
+
+        // =========================================================
+        // Layer 3: Swift mapping / Flow layer
+        // =========================================================
         .target(
             name: "TunForge",
-            dependencies: ["TunForgeCore"],
-            path: "Sources/TunForge",
-            sources: ["TunForge.swift"]
+            dependencies: [
+                "TunForgeCore",
+            ],
+            path: "Sources/TunForge"
         ),
+
+        // =========================================================
         // Tests
+        // =========================================================
         .testTarget(
             name: "TunForgeTests",
             dependencies: ["TunForge"],

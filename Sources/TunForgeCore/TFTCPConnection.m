@@ -1,0 +1,651 @@
+//
+//  TFTCPConnection.m
+//  TunForge
+//
+//  Created by MagicianQuinn on 2026/1/1.
+//
+//
+
+/*
+ *
+ * Rule 1:
+ * `alive` is used only to determine whether the object can still be accessed safely.
+ *
+ * Rule 2:
+ * `state` is used only to determine which actions are permitted in the current phase.
+ *
+ * Rule 3:
+ * When `alive == NO`, `state` has no semantic meaning.
+ *
+ * Rule 4:
+ * `TCPConnection` does not infer closure from read/write/FIN/EOF events.
+ *
+ */
+
+#import "TFTCPConnection.h"
+#import "TFGlobalScheduler.h"
+#import "TFObjectRef.h"
+#import "TFQueueHelpers.h"
+#import "TFTCPConnectionInfo.h"
+#import "TFTunForgeLog.h"
+#import "TFWeakifyStrongify.h"
+
+#import "lwip/err.h"
+#import "lwip/pbuf.h"
+#import "lwip/tcp.h"
+
+#import <arpa/inet.h>
+#import <netinet/in.h>
+
+#pragma mark - Helpers
+
+static inline NSString *tf_ipv4_to_string(uint32 addr_network_order) {
+    struct in_addr addr;
+    addr.s_addr = addr_network_order;
+    const char *cStr = inet_ntoa(addr);
+    return cStr ? [NSString stringWithUTF8String:cStr] : @"0.0.0.0";
+}
+
+static inline u16_t tf_tcp_min_write_ready_bytes(const struct tcp_pcb *pcb) {
+    // Pure hint. Keep it small to avoid "stuck writable==NO" under small sndbuf.
+    // Prefer ">= 1 * mss" rather than 4*mss (4*mss can be too strict for small pipes).
+    if (!pcb)
+        return 0;
+    u16_t mss = pcb->mss;
+    if (mss == 0)
+        mss = TCP_MSS; // fallback
+    return (u16_t)(1 * mss);
+}
+
+static inline BOOL tf_tcp_write_ready(struct tcp_pcb *pcb) {
+    if (!pcb)
+        return NO;
+#ifdef TCP_SNDLOWAT
+    return tcp_sndbuf(pcb) >= TCP_SNDLOWAT;
+#else
+    return tcp_sndbuf(pcb) >= tf_tcp_min_write_ready_bytes(pcb);
+#endif
+}
+
+#pragma mark - LwIP raw declarations
+
+static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err);
+static err_t tf_tcp_sent(void *arg, struct tcp_pcb *pcb, u16_t len);
+static err_t tf_tcp_poll(void *arg, struct tcp_pcb *pcb);
+static void tf_tcp_err(void *arg, err_t err);
+
+#if LWIP_TCP_PCB_NUM_EXT_ARGS
+static void tf_tcp_extarg_destroy(u8_t id, void *arg);
+static const struct tcp_ext_arg_callbacks tf_tcp_extarg_cbs;
+#endif
+
+#pragma mark - TFTCPConnection()
+
+typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
+    TFTCPConnectionNew = 0, // accepted from lwIP but not established to backlog yet
+    TFTCPConnectionActive,
+    TFTCPConnectionClosing,
+    TFTCPConnectionClosed
+};
+
+@interface TFTCPConnection ()
+
+@property (nonatomic, assign) struct tcp_pcb *pcb;
+@property (nonatomic, strong) TFObjectRef *pcbRef;
+
+@property (nonatomic, assign) BOOL alive;
+@property (nonatomic, assign) BOOL writable;
+
+@property (nonatomic, assign) BOOL readEOFFlag;  // peer FIN observed (p == NULL)
+@property (nonatomic, assign) BOOL writeFINFlag; // local shutdownWrite called
+
+@property (nonatomic, assign) TFTCPConnectionState state;
+@property (nonatomic, assign) TFTCPConnectionTerminationReason terminationReason;
+
+@property (nonatomic, assign) BOOL didNotifyActive;
+@property (nonatomic, assign) BOOL didNotifyTerminated;
+
+@property (nonatomic, assign) BOOL pendingClose;
+@property (nonatomic, assign) BOOL recvEnabled;
+
+@end
+
+@implementation TFTCPConnection
+
+- (instancetype)init {
+    NSAssert(NO, @"Use initWithTCPPcb:");
+    return nil;
+}
+
+- (instancetype)initWithTCPPcb:(struct tcp_pcb *)pcb {
+    NSParameterAssert(pcb);
+    if (self = [super init]) {
+        _pcb = pcb;
+        _alive = YES;
+        _writable = NO;
+        _didNotifyActive = NO;
+        _didNotifyTerminated = NO;
+        _terminationReason = TFTCPConnectionTerminationReasonNone;
+        _state = TFTCPConnectionNew;
+        _pendingClose = NO;
+        _recvEnabled = NO;
+
+        NSString *localIP = nil;
+        NSString *remoteIP = nil;
+#if LWIP_IPV4
+        localIP = tf_ipv4_to_string(pcb->remote_ip.addr);
+        remoteIP = tf_ipv4_to_string(pcb->local_ip.addr);
+#endif
+        localIP = localIP ?: @"0.0.0.0";
+        remoteIP = remoteIP ?: @"0.0.0.0";
+        UInt16 localPort = pcb->remote_port;
+        UInt16 remotePort = pcb->local_port;
+
+        _info = [[TFTCPConnectionInfo alloc] initWithSrcIP:localIP
+                                                   srcPort:localPort
+                                                     dstIP:remoteIP
+                                                   dstPort:remotePort];
+
+        [TFTunForgeLog debug:[NSString stringWithFormat:@"TCP connection created %@:%u -> %@:%u",
+                                                        localIP,
+                                                        localPort,
+                                                        remoteIP,
+                                                        remotePort]];
+        [self setupPcb];
+    }
+    return self;
+}
+
+#pragma mark - Setup
+
+- (void)setupPcb {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+    struct tcp_pcb *pcb = self.pcb;
+    if (!pcb)
+        return;
+
+    self.pcbRef = [[TFObjectRef alloc] initWithObject:self];
+    void *arg = [self.pcbRef retainedVoidPointer];
+
+    tcp_arg(pcb, arg);
+    tcp_recv(pcb, tf_tcp_recv);
+    tcp_sent(pcb, tf_tcp_sent);
+    tcp_poll(pcb, tf_tcp_poll, 2);
+    tcp_err(pcb, tf_tcp_err);
+
+#if LWIP_TCP_PCB_NUM_EXT_ARGS
+    tcp_ext_arg_set_callbacks(pcb, TUNFORGE_TCP_EXTARG_ID, &tf_tcp_extarg_cbs);
+    tcp_ext_arg_set(pcb, TUNFORGE_TCP_EXTARG_ID, arg);
+#endif
+}
+
+#pragma mark - Public
+
+- (void)markActive {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    if (!self.alive || !self.pcb)
+        return;
+    if (self.state != TFTCPConnectionNew)
+        return;
+
+    self.state = TFTCPConnectionActive;
+
+    tcp_backlog_accepted(self.pcb);
+
+    [TFTunForgeLog info:@"TCP connection established"];
+    [self notifyActiveOnceLocked];
+
+    // Initial hint: derive from current sndbuf (not forced YES).
+    [self updateWritableLocked:tf_tcp_write_ready(self.pcb)];
+}
+
+- (void)setRecvEnabled:(BOOL)enabled {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    if (_recvEnabled == enabled)
+        return;
+    _recvEnabled = enabled;
+}
+
+//// Precise ACK to lwIP (recv window credit)
+- (void)ackRecvBytes:(NSUInteger)bytes {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    if (bytes == 0)
+        return;
+
+    if (!self.alive || !self.pcb)
+        return;
+
+    if (self.state != TFTCPConnectionActive)
+        return;
+
+    // Safety: lwIP tcp_recved takes u16_t
+    while (bytes > 0) {
+        u16_t chunk = (u16_t)MIN(bytes, (NSUInteger)UINT16_MAX);
+        tcp_recved(self.pcb, chunk);
+
+        bytes -= chunk;
+    }
+
+    [TFTunForgeLog
+        info:[NSString stringWithFormat:@"[flow io] Precise ACK to lwIP=%ld", (long)bytes]];
+}
+
+- (NSUInteger)writeData:(NSData *)data {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    if (!data || data.length == 0)
+        return 0;
+
+    if (!self.alive || !self.pcb)
+        return 0;
+    if (self.state != TFTCPConnectionActive)
+        return 0;
+    if (self.writeFINFlag)
+        return 0;
+
+    const NSUInteger total = data.length;
+    uint64_t remaining = total;
+    uint8_t *bytes = (uint8_t *)data.bytes;
+
+    while (remaining > 0) {
+        // lwIP tcp_write takes u16_t len.
+        u16_t chunk = (u16_t)MIN((NSUInteger)UINT16_MAX, remaining);
+        err_t e = tcp_write(self.pcb, bytes, chunk, TCP_WRITE_FLAG_COPY);
+
+        if (e == ERR_OK) {
+            remaining -= chunk;
+            bytes += chunk;
+
+            tcp_output(self.pcb);
+        } else if (e == ERR_MEM) {
+            // Backpressure fact: sndbuf / queue is full. Ask lwIP to send pending segments.
+            tcp_output(self.pcb);
+            [self updateWritableLocked:NO];
+            break;
+        } else {
+            [self abortLocked:TFTCPConnectionTerminationReasonAbort];
+            return 0;
+        }
+    }
+
+    return total - (NSUInteger)remaining;
+}
+
+- (void)shutdownWrite {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    if (!self.alive || !self.pcb)
+        return;
+    if (self.state == TFTCPConnectionClosed)
+        return;
+
+    if (self.writeFINFlag)
+        return;
+    self.writeFINFlag = YES;
+
+    [TFTunForgeLog info:@"TCP shutdownWrite (FIN)"];
+
+#if LWIP_TCP
+    // Shut TX only.
+    tcp_shutdown(self.pcb, 0, 1);
+    tcp_output(self.pcb);
+#endif
+}
+
+- (void)gracefulClose {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    if (!self.alive)
+        return;
+    if (!self.pcb) {
+        [self terminateLocked:TFTCPConnectionTerminationReasonClose];
+        return;
+    }
+
+    [TFTunForgeLog info:@"TCP gracefulClose requested"];
+    [self tryGracefulCloseLocked];
+}
+
+- (void)abort {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    [self abortLocked:TFTCPConnectionTerminationReasonAbort];
+}
+
+#pragma mark - Private
+
+- (void)tryGracefulCloseLocked {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    if (!self.alive)
+        return;
+    if (!self.pcb) {
+        [self terminateLocked:TFTCPConnectionTerminationReasonClose];
+        return;
+    }
+    if (self.state == TFTCPConnectionClosed)
+        return;
+
+    self.state = TFTCPConnectionClosing;
+
+    err_t err = tcp_close(self.pcb);
+    switch (err) {
+    case ERR_OK: {
+        // After tcp_close, pcb may be freed by lwIP; never touch it again.
+        self.pcb = NULL;
+        self.pendingClose = NO;
+        [self terminateLocked:TFTCPConnectionTerminationReasonClose];
+    } break;
+
+    case ERR_MEM: {
+        // lwIP couldn't close now (unsent data). Retry in poll.
+        self.pendingClose = YES;
+    } break;
+
+    default: {
+        [self abortLocked:TFTCPConnectionTerminationReasonAbort];
+    } break;
+    }
+}
+
+- (void)abortLocked:(TFTCPConnectionTerminationReason)reason {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    if (!self.alive)
+        return;
+    if (self.state == TFTCPConnectionClosed)
+        return;
+
+    self.state = TFTCPConnectionClosing;
+    [TFTunForgeLog warn:@"TCP connection aborted"];
+
+    if (self.pcb) {
+        [self clearCallbackLocked];
+
+        struct tcp_pcb *pcb = self.pcb;
+        self.pcb = NULL;
+        tcp_abort(pcb);
+    }
+
+    [self terminateLocked:reason];
+}
+
+- (void)handlerReadEOFLocked {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    if (self.readEOFFlag)
+        return;
+    self.readEOFFlag = YES;
+
+    [TFTunForgeLog info:@"TCP recv FIN (EOF)"];
+
+    weakify(self);
+    [TFGlobalScheduler.shared connectionsPerformAsync:^{
+        strongify(self);
+        if (!self || !self.alive)
+            return;
+        if (!self.onReadEOF)
+            return;
+        self.onReadEOF(self);
+    }];
+}
+
+- (void)terminateLocked:(TFTCPConnectionTerminationReason)reason {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    if (self.didNotifyTerminated)
+        return;
+    self.didNotifyTerminated = YES;
+
+    // Always detach callbacks to avoid any future lwIP invocation into stale arg.
+    if (self.pcb) {
+        [self clearCallbackLocked];
+    }
+
+    self.alive = NO;
+    self.state = TFTCPConnectionClosed;
+    self.terminationReason = reason;
+    self.pendingClose = NO;
+
+    [TFTunForgeLog info:[NSString stringWithFormat:@"TCP terminated, reason=%ld", (long)reason]];
+
+    weakify(self);
+    [TFGlobalScheduler.shared connectionsPerformAsync:^{
+        strongify(self);
+        if (!self || !self.onTerminated)
+            return;
+        self.onTerminated(self, reason);
+    }];
+}
+
+#pragma mark - Internal helpers
+
+- (void)clearCallbackLocked {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    if (!self.pcb)
+        return;
+    struct tcp_pcb *pcb = self.pcb;
+
+    tcp_arg(pcb, NULL);
+    tcp_recv(pcb, NULL);
+    tcp_sent(pcb, NULL);
+    tcp_poll(pcb, NULL, 0);
+    tcp_err(pcb, NULL);
+
+#if LWIP_TCP_PCB_NUM_EXT_ARGS
+    tcp_ext_arg_set(pcb, TUNFORGE_TCP_EXTARG_ID, NULL);
+#endif
+
+    [self.pcbRef invalidate];
+}
+
+- (void)notifyActiveOnceLocked {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    if (self.didNotifyActive)
+        return;
+    self.didNotifyActive = YES;
+
+    weakify(self);
+    [TFGlobalScheduler.shared connectionsPerformAsync:^{
+        strongify(self);
+        if (!self || !self.alive)
+            return;
+        if (!self.onBecameActive)
+            return;
+        self.onBecameActive(self);
+    }];
+}
+
+- (void)updateWritableLocked:(BOOL)newValue {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    if (self.writable == newValue)
+        return;
+    self.writable = newValue;
+
+    weakify(self);
+    [TFGlobalScheduler.shared connectionsPerformAsync:^{
+        strongify(self);
+        if (!self || !self.alive)
+            return;
+        if (!self.onWritableChanged)
+            return;
+        self.onWritableChanged(self, newValue);
+    }];
+}
+
+#pragma mark - Alive guard via tcp_ext_arg (optional)
+
+#if LWIP_TCP_PCB_NUM_EXT_ARGS
+
+- (void)receivedPcbDestroyed {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    if (self.didNotifyTerminated)
+        return;
+
+    // pcb already destroyed by lwIP
+    self.pcb = NULL;
+    [self terminateLocked:TFTCPConnectionTerminationReasonDestroyed];
+}
+
+static void tf_tcp_extarg_destroy(u8_t id, void *arg) {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+    LWIP_UNUSED_ARG(id);
+
+    if (!arg)
+        return;
+
+    TFObjectRef *ref = (__bridge TFObjectRef *)arg;
+    if (!ref)
+        return;
+
+    NSObject *obj = ref.object;
+    [ref invalidate];
+
+    if ([obj isKindOfClass:[TFTCPConnection class]]) {
+        [(TFTCPConnection *)obj receivedPcbDestroyed];
+    }
+
+    TFObjectRefRelease(arg);
+}
+
+static const struct tcp_ext_arg_callbacks tf_tcp_extarg_cbs = {.destroy = tf_tcp_extarg_destroy};
+
+#endif
+
+#pragma mark - lwIP raw callbacks
+
+static inline TFTCPConnection *tf_conn_from_arg(void *arg) {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    if (!arg)
+        return nil;
+    if (![(__bridge id)arg isKindOfClass:[TFObjectRef class]])
+        return nil;
+
+    TFObjectRef *ref = (__bridge TFObjectRef *)arg;
+    if (!ref.alive)
+        return nil;
+
+    id obj = ref.object;
+    if (!obj || ![obj isKindOfClass:[TFTCPConnection class]])
+        return nil;
+
+    return (TFTCPConnection *)obj;
+}
+
+static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    TFTCPConnection *conn = tf_conn_from_arg(arg);
+    if (!conn || !conn.alive) {
+        if (p)
+            pbuf_free(p);
+        return ERR_OK;
+    }
+
+    if (err != ERR_OK) {
+        if (p)
+            pbuf_free(p);
+        [conn abortLocked:TFTCPConnectionTerminationReasonAbort];
+        return ERR_OK;
+    }
+
+    if (p == NULL) {
+        // Peer FIN observed: event only (Rule 4: do not infer close).
+        [conn handlerReadEOFLocked];
+        return ERR_OK;
+    }
+
+    const u16_t tot = p->tot_len;
+
+    // Closed-loop uplink backpressure:
+    // If upper layer says "pause", DO NOT consume pbuf, let lwIP retry later.
+    if (!conn.recvEnabled) {
+        return ERR_MEM;
+    }
+
+    // Copy bytes out first.
+    NSMutableData *data = [[NSMutableData alloc] initWithLength:tot];
+    if (tot > 0) {
+        pbuf_copy_partial(p, data.mutableBytes, tot, 0);
+    }
+
+    // Ack recv window
+    tcp_recved(pcb, tot);
+    pbuf_free(p);
+
+    weakify(conn);
+    [TFGlobalScheduler.shared connectionsPerformAsync:^{
+        strongify(conn);
+        if (!conn || !conn.alive || !conn.onReadable)
+            return;
+        conn.onReadable(conn, data);
+    }];
+
+    return ERR_OK;
+}
+
+static err_t tf_tcp_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    TFTCPConnection *conn = tf_conn_from_arg(arg);
+    if (!conn || !conn.alive)
+        return ERR_OK;
+
+    // Observer-only hint
+    [conn updateWritableLocked:tf_tcp_write_ready(pcb)];
+
+    weakify(conn);
+    [TFGlobalScheduler.shared connectionsPerformAsync:^{
+        strongify(conn);
+        if (!conn || !conn.alive || !conn.onSentBytes)
+            return;
+        conn.onSentBytes(conn, len);
+    }];
+
+    return ERR_OK;
+}
+
+static err_t tf_tcp_poll(void *arg, struct tcp_pcb *pcb) {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    TFTCPConnection *conn = tf_conn_from_arg(arg);
+    if (!conn || !conn.alive)
+        return ERR_OK;
+
+    // Optional observer-only hint
+    [conn updateWritableLocked:tf_tcp_write_ready(pcb)];
+
+    // Close retry (only if user requested graceful close and lwIP deferred it)
+    if (conn.pendingClose && conn.pcb == pcb) {
+        [conn tryGracefulCloseLocked];
+    }
+
+    return ERR_OK;
+}
+
+static void tf_tcp_err(void *arg, err_t err) {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    TFTCPConnection *conn = tf_conn_from_arg(arg);
+    if (!conn || !conn.alive)
+        return;
+
+    // pcb is already invalid/free at this point.
+    conn.pcb = NULL;
+
+    TFTCPConnectionTerminationReason reason = (err == ERR_RST)
+                                                  ? TFTCPConnectionTerminationReasonReset
+                                                  : TFTCPConnectionTerminationReasonAbort;
+
+    [conn terminateLocked:reason];
+}
+
+@end

@@ -1,0 +1,45 @@
+# TunForge clang-format configuration
+# Goal: match existing TunForgeCore Objective-C/C style (exclude lwIP sources).
+
+BasedOnStyle: LLVM
+
+# Indentation
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+
+# Line length
+ColumnLimit: 100
+
+# Braces / one-liners
+BreakBeforeBraces: Attach
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: Empty
+
+# Line wrapping / alignment
+AlignAfterOpenBracket: Align
+BinPackArguments: false
+BinPackParameters: false
+
+# Prefer not to split return type from function name.
+PenaltyReturnTypeOnItsOwnLine: 10000
+
+# Pointers & nullability
+DerivePointerAlignment: false
+PointerAlignment: Right        # e.g. `NSObject *obj`
+SpaceAroundPointerQualifiers: After  # e.g. `void *_Nonnull`
+
+# Includes
+SortIncludes: Never
+IncludeBlocks: Preserve
+
+# Objective-C specifics
+ObjCBlockIndentWidth: 4
+ObjCSpaceAfterProperty: true
+SpacesInAngles: Never
+
+# Misc
+ReflowComments: false

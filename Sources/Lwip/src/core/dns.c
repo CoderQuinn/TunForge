@@ -405,7 +405,7 @@ dns_init_local(void)
 #if DNS_LOCAL_HOSTLIST_IS_DYNAMIC && defined(DNS_LOCAL_HOSTLIST_INIT)
   size_t i;
   struct local_hostlist_entry *entry;
-  /* Dynamic: copy entries from DNS_LOCAL_HOSTLIST_INIT to list */
+  /* copy entries from DNS_LOCAL_HOSTLIST_INIT to list */
   struct local_hostlist_entry local_hostlist_init[] = DNS_LOCAL_HOSTLIST_INIT;
   size_t namelen;
   for (i = 0; i < LWIP_ARRAYSIZE(local_hostlist_init); i++) {

@@ -1,0 +1,6 @@
+module TunForgeCore {
+    umbrella header "TunForgeCore.h"
+
+    export *
+    module * { export * }
+}

@@ -1,16 +1,33 @@
 # Changelog
 
+## [0.2.0] — 2026-01-09
+
+### Breaking Changes
+
+- Public API/integration contract updated (0.1.x -> 0.2.x)
+- `TFGlobalScheduler` must be configured once **before** the first `TFIPStack.defaultStack()` acquire
+- All lwIP-facing calls (`start/stop/inputPacket`, and `TFTCPConnection.markActive/setRecvEnabled`) must run on `TFGlobalScheduler.packetsQueue`
+- `TFIPStackDelegate.didAcceptNewTCPConnection(...handler:)` is invoked on `connectionsQueue` and the `handler` must be called exactly once
+- Accepted connections default to receive paused; upper layer must explicitly `markActive()` and `setRecvEnabled(true)` when ready
+
+### Packaging & Docs
+
+- Update SPM metadata and dependency lockfile
+- Refresh README: version badge/status, install snippet, and Swift requirement alignment
+- Minor warning cleanup (Swift adapter + ObjC nullability annotations)
+- Document a minimal integration skeleton for the updated API
+
 ## [0.1.0] — 2025-12-22
 
-### Core Architecture Stabilized
+### Experimental (Pre-1.0)
 
-- 🧠 Frozen lifecycle model for stack / socket / lwIP PCB
-- 🔒 Deterministic ownership via a unified lifecycle binding mechanism
-- 🧵 Explicit scheduling semantics with a single lwIP process queue
-- 🔌 Transparent TCP interception considered stable and reusable
-- 📦 Public API deemed safe to depend on (pre-1.0)
+-  Introduced the core lifecycle model for stack / socket / lwIP PCB
+-  Unified ownership/lifecycle binding to reduce accidental misuse
+-  Defined explicit scheduling semantics with a single lwIP process queue
+-  Working TCP interception core, but APIs and integration contract were still evolving
+-  Public API was experimental and subject to change
 
-This release marks the transition from experimental code to a stable TCP core.
+This release introduced the architecture, but should be treated as experimental.
 
 ---
 
