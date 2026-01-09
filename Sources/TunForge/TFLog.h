@@ -8,6 +8,13 @@
 
 #import <Foundation/Foundation.h>
 
+// Swift C bridge functions
+extern void TFLogInfo(const char *msg);
+extern void TFLogDebug(const char *msg);
+extern void TFLogError(const char *msg);
+extern void TFLogWarning(const char *msg);
+extern void TFLogVerbose(const char *msg);
+
 #pragma mark - Module Log Macros
 
 /**
@@ -20,13 +27,3 @@
 #define TFLogModuleWarn(module, fmt, ...)    TFLogWarning([[NSString stringWithFormat:@"[%@][%p] " fmt, module, self, ##__VA_ARGS__] UTF8String])
 #define TFLogModuleError(module, fmt, ...)   TFLogError([[NSString stringWithFormat:@"[%@][%p] " fmt, module, self, ##__VA_ARGS__] UTF8String])
 #define TFLogModuleVerbose(module, fmt, ...) TFLogVerbose([[NSString stringWithFormat:@"[%@][%p] " fmt, module, self, ##__VA_ARGS__] UTF8String])
-
-#pragma mark - C Log Functions
-
-/// Low-level C logging functions used by macros above.
-/// Declared here for compile-time visibility across Objective-C units.
-void TFLogInfo(const char *msg);
-void TFLogDebug(const char *msg);
-void TFLogError(const char *msg);
-void TFLogWarning(const char *msg);
-void TFLogVerbose(const char *msg);

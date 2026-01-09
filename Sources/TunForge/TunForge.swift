@@ -11,16 +11,16 @@ import TunForgeCore
 // MARK: - Type Aliases
 
 /// Swift-friendly typealias for the IP stack singleton.
-public typealias TSIPStack = TFIPStack
+public typealias TSIPStack = LWIPStack
 
 /// Swift-friendly typealias for TCP socket connections.
-public typealias TSTCPSocket = TFTCPSocket
+public typealias TSTCPSocket = LWTCPSocket
 
 // MARK: - TSIPStackDelegate Extension
 
 /// Swift extension providing default no-op implementations for optional delegate methods.
 public extension TSIPStackDelegate {
-    func didAcceptTCPSocket(_: TFTCPSocket) {
+    func didAcceptTCPSocket(_ socket: LWTCPSocket) {
         // Default no-op implementation
     }
 }
@@ -29,27 +29,27 @@ public extension TSIPStackDelegate {
 
 /// Swift extension providing default no-op implementations for optional delegate methods.
 public extension TSTCPSocketDelegate {
-    func socketDidShutdownRead(_: TFTCPSocket) {
+    func socketDidShutdownRead(_ socket: LWTCPSocket) {
         // Default no-op
     }
-
-    func socketDidReset(_: TFTCPSocket) {
+    
+    func socketDidReset(_ socket: LWTCPSocket) {
         // Default no-op
     }
-
-    func socketDidAbort(_: TFTCPSocket) {
+    
+    func socketDidAbort(_ socket: LWTCPSocket) {
         // Default no-op
     }
-
-    func socketDidClose(_: TFTCPSocket) {
+    
+    func socketDidClose(_ socket: LWTCPSocket) {
         // Default no-op
     }
-
-    func socket(_: TFTCPSocket, didReadData _: Data) {
+    
+    func socket(_ socket: LWTCPSocket, didReadData data: Data) {
         // Default no-op
     }
-
-    func socket(_: TFTCPSocket, didWriteDataOfLength _: UInt) {
+    
+    func socket(_ socket: LWTCPSocket, didWriteDataOfLength length: UInt) {
         // Default no-op
     }
 }

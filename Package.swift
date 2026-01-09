@@ -1,20 +1,16 @@
-// swift-tools-version:5.3
+// swift-tools-version:6.1
 import PackageDescription
 
 let package = Package(
     name: "TunForge",
     platforms: [
         .iOS(.v13),
-        .macOS(.v11),
+        .macOS(.v13),
     ],
     products: [
         .library(
             name: "TunForge",
             targets: ["TunForge"]
-        ),
-        .library(
-            name: "TunForgeCore",
-            targets: ["TunForgeCore"]
         ),
     ],
     dependencies: [],

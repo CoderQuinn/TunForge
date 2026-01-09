@@ -33,9 +33,3 @@ Carthage/Build/
 *.lock
 .swiftlint.yml
 launch.json
-
-# macOS
-.DS_Store
-
-# SwiftPM workspace metadata
-.swiftpm/

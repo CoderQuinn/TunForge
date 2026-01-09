@@ -105,94 +105,6 @@ static void tcp_remove_sacks_gt(struct tcp_pcb *pcb, u32_t seq);
 #endif /* TCP_OOSEQ_BYTES_LIMIT || TCP_OOSEQ_PBUFS_LIMIT */
 #endif /* LWIP_TCP_SACK_OUT */
 
-#if LWIP_TUNFORGE_TRANSPARENT_TCP
-static err_t
-tunforge_tcp_input_syn(struct pbuf *p)
-{
-  /* Defensive: this helper must be self-contained. */
-  if (!((flags & TCP_SYN) && !(flags & TCP_ACK))) {
-    return ERR_VAL;
-  }
-
-#if LWIP_IPV6
-  /* TunForge transparent path is IPv4-only today. */
-  LWIP_ASSERT("TunForge IPv4 only", !ip_current_is_v6());
-#endif
-
-  struct tcp_pcb *pcb;
-  u32_t iss;
-  err_t rc;
-
-  pcb = tcp_alloc(TCP_PRIO_NORMAL);
-  if (pcb == NULL) {
-   /* No PCB -> silently drop (no RST). Remote will retransmit SYN.
-      IMPORTANT: consume and free inbound pbuf to avoid leaks. */
-    if (p) {
-      pbuf_free(p);
-    }
-    return ERR_MEM;
-  }
-
-  /* Pretend we are the remote server */
-  ip_addr_copy(pcb->local_ip, *ip_current_dest_addr());
-  ip_addr_copy(pcb->remote_ip, *ip_current_src_addr());
-  pcb->local_port  = tcphdr->dest;
-  pcb->remote_port = tcphdr->src;
-  pcb->netif_idx   = netif_get_index(ip_data.current_input_netif);
-
-  pcb->state = SYN_RCVD;
-  pcb->rcv_nxt = seqno + 1;
-  pcb->rcv_ann_right_edge = pcb->rcv_nxt;
-
-  iss = tcp_next_iss(pcb);
-  pcb->snd_wl2 = iss;
-  pcb->snd_nxt = iss;
-  pcb->lastack = iss;
-  pcb->snd_lbb = iss;
-  pcb->snd_wl1 = seqno - 1;
-
-  TCP_REG_ACTIVE(pcb);
-
-#if LWIP_TCP_PCB_NUM_EXT_ARGS
-  /* Bind back to stack instance (netif->state stores TFObjectRef* stackRef*). */
-    
-    void *state = ip_data.current_input_netif ? ip_data.current_input_netif->state : NULL;
-    if (state) {
-        tunforge_tcp_bind_stack(pcb, state);
-    }
-
-#endif
-
-#ifdef LWIP_HOOK_TCP_NEW_PCB
-  LWIP_HOOK_TCP_NEW_PCB(pcb);
-#endif
-
-  tcp_parseopt(pcb);
-  pcb->snd_wnd = tcphdr->wnd;
-  pcb->snd_wnd_max = pcb->snd_wnd;
-
-#if TCP_CALCULATE_EFF_SEND_MSS
-  pcb->mss = tcp_eff_send_mss(pcb->mss,
-                              &pcb->local_ip,
-                              &pcb->remote_ip);
-#endif
-
-  rc = tcp_enqueue_flags(pcb, TCP_SYN | TCP_ACK);
-  if (rc != ERR_OK) {
-    tcp_abandon(pcb, 0);
-    /* We consumed the inbound SYN. */
-    pbuf_free(p);
-    return ERR_OK;
-  }
-
-  tcp_output(pcb);
-
-  /* TunForge consumes the inbound SYN on success. */
-  pbuf_free(p);
-  return ERR_OK;
-}
-#endif /* LWIP_TUNFORGE_TRANSPARENT_TCP */
-
 /**
  * The initial input processing of TCP. It verifies the TCP header, demultiplexes
  * the segment between the PCBs and passes it on to tcp_process(), which implements
@@ -658,25 +570,6 @@ aborted:
       inseg.p = NULL;
     }
   } else {
-      
-#if LWIP_TUNFORGE_TRANSPARENT_TCP
-    /* ============================================================
-     * TunForge transparent TCP interception
-     *
-     * Intercept initial SYN (no ACK) that has no matching PCB.
-     * If handled (or dropped due to memory pressure), packet is fully
-     * consumed and no RST is sent.
-     * ============================================================ */
-    if ((flags & TCP_SYN) && !(flags & TCP_ACK)) {
-      err_t trc = tunforge_tcp_input_syn(p);
-      if ((trc == ERR_OK) || (trc == ERR_MEM)) {
-        /* ERR_OK: SYN->SYN|ACK sent, pbuf consumed.
-           ERR_MEM: no PCB, silent drop, pbuf still must be considered consumed. */
-        return;
-      }
-    }
-#endif /* LWIP_TUNFORGE_TRANSPARENT_TCP */
-      
     /* If no matching PCB was found, send a TCP RST (reset) to the
        sender. */
     LWIP_DEBUGF(TCP_RST_DEBUG, ("tcp_input: no PCB match found, resetting.\n"));
@@ -1048,27 +941,6 @@ tcp_process(struct tcp_pcb *pcb)
         if (TCP_SEQ_BETWEEN(ackno, pcb->lastack + 1, pcb->snd_nxt)) {
           pcb->state = ESTABLISHED;
           LWIP_DEBUGF(TCP_DEBUG, ("TCP connection established %"U16_F" -> %"U16_F".\n", inseg.tcphdr->src, inseg.tcphdr->dest));
-          
-#if LWIP_TUNFORGE_TRANSPARENT_TCP
-#if LWIP_TCP_PCB_NUM_EXT_ARGS
-            if (tunforge_tcp_get_stack(pcb) != NULL) {
-
-      #ifdef LWIP_HOOK_TUNFORGE_TCP_ESTABLISHED
-        LWIP_HOOK_TUNFORGE_TCP_ESTABLISHED(pcb);
-      #endif
-        /* If this PCB has a listener (not the transparent path), continue to
-         * normal accept/backlog handling. Otherwise, consume here. */
-      #if LWIP_CALLBACK_API || TCP_LISTEN_BACKLOG
-        if (pcb->listener == NULL)
-      #endif
-        {
-          tcp_receive(pcb);
-          return ERR_OK;
-        }
-            }
-#endif
-#endif /* LWIP_TUNFORGE_TRANSPARENT_TCP */
-        
 #if LWIP_CALLBACK_API || TCP_LISTEN_BACKLOG
           if (pcb->listener == NULL) {
             /* listen pcb might be closed by now */
