@@ -246,7 +246,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         return 0;
 
     uint64_t remaining = length;
-    uint8_t *cur = (uint8_t *)bytes;
+    const uint8_t *cur = (const uint8_t *)bytes;
     BOOL didWrite = NO;
     while (remaining > 0) {
         // lwIP tcp_write takes u16_t len.
