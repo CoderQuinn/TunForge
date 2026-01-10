@@ -30,8 +30,19 @@ typedef NS_ENUM(NSUInteger, TFTCPConnectionTerminationReason) {
     TFTCPConnectionTerminationReasonDestroyed // ext destroy
 };
 
+typedef struct {
+    const void *bytes;
+    NSUInteger length;
+} TFBytesSlice;
+typedef void (^TFTCPReadableBytesCompletion)(void);
+
 typedef void (^TFTCPBecameActiveHandler)(TFTCPConnection *conn);
 typedef void (^TFTCPReadableHandler)(TFTCPConnection *conn, NSData *data);
+typedef void (^TFTCPReadableBytesBatchHandler)(TFTCPConnection *conn,
+                                               const TFBytesSlice *slices,
+                                               NSUInteger sliceCount,
+                                               NSUInteger totalBytesLength,
+                                               TFTCPReadableBytesCompletion completion);
 typedef void (^TFTCPWritableChangedHandler)(TFTCPConnection *conn, BOOL writable);
 typedef void (^TFTCPSentBytesHandler)(TFTCPConnection *conn, NSUInteger sentBytes);
 typedef void (^TFTCPReadEOFHandler)(TFTCPConnection *conn);
@@ -48,9 +59,11 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 /// Fired after markActive succeeds.
 @property (nullable, nonatomic, copy) TFTCPBecameActiveHandler onBecameActive;
 
-/// Downstream data arrived (already tcp_recved in lwIP callback).
-/// Upper layer must process promptly but does not control TCP window.
+/// Compatibility path. Will allocate & copy.
+/// Prefer onReadableBytes for zero-additional-copy at the bridge layer.
 @property (nullable, nonatomic, copy) TFTCPReadableHandler onReadable;
+
+@property (nullable, nonatomic, copy) TFTCPReadableBytesBatchHandler onReadableBytes;
 
 /// Edge changes of sendbuf writability (driven by ERR_MEM / tcp_sent / poll).
 @property (nullable, nonatomic, copy) TFTCPWritableChangedHandler onWritableChanged;
@@ -70,7 +83,8 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 /// One-time transition: marks the connection as established/active.
 - (void)markActive;
 
-/// Enqueue a write (copy-write).
+- (NSUInteger)writeBytes:(const void *)bytes length:(NSUInteger)length;
+
 - (NSUInteger)writeData:(NSData *)data;
 
 // NOTE:
