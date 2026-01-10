@@ -580,7 +580,6 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
     if (tot == 0) {
         pbuf_free(p);
         return ERR_OK;
-        ;
     }
 
     // Ack recv window
