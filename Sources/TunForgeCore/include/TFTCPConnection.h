@@ -65,30 +65,6 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 
 /// Zero-copy receive path. Invoked with one or more contiguous byte slices that
 /// are owned by the connection's internal receive buffer.
-///
-/// Use this instead of `onReadable` when you can process the received bytes
-/// directly (e.g. parsing, forwarding, or encoding) without requiring an extra
-/// copy into an `NSData` instance. This is the most efficient way to consume
-/// inbound data at the bridge layer.
-///
-/// Lifecycle:
-/// - The `bytes` pointers contained in each `TFBytesSlice` are only valid for
-///   the duration of the handler invocation.
-/// - You MUST call the provided `completion` block exactly once for each call
-///   to this handler to signal that you are done with the slices.
-/// - After `completion` returns, the underlying buffers may be reused or freed;
-///   you MUST NOT read from or otherwise access `TFBytesSlice.bytes` beyond
-///   that point.
-/// - If you need to retain any data beyond the call, copy it before invoking
-///   `completion`.
-///
-/// Thread safety:
-/// - The handler is invoked on the connection's internal execution context
-///   (e.g. its event-loop / lwIP callback thread).
-/// - It should be treated as NOT thread-safe: if you share data structures
-///   with other threads, you are responsible for any necessary synchronization.
-/// - Do not block for long periods inside the handler; offload expensive work
-///   to your own queue and copy the data if needed before returning.
 @property (nullable, nonatomic, copy) TFTCPReadableBytesBatchHandler onReadableBytes;
 
 /// Edge changes of sendbuf writability (driven by ERR_MEM / tcp_sent / poll).

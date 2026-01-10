@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.1] — 2026-01-11
+
+### Performance
+
+- Introduce a zero-copy TCP receive path via `onReadableBytes`, avoiding intermediate `NSData` allocations for inbound data.
+- Add `writeBytes:length:` to bypass `NSData` wrapping on the send path, reducing extra memory copies at the Objective-C bridge layer.
+
+### API
+
+- `TFTCPConnection` gains `onReadableBytes` (batch slices + completion) and `writeBytes:length:` for more efficient data handling.
+- Existing `onReadable` remains for compatibility; prefer `onReadableBytes` in new integrations.
+
+### Packaging & CI
+
+- Tidy CI workflow YAML formatting and branches configuration.
+- Align lwIP option wrappers to platform-specific headers and keep core semantics defined once.
+
 ## [0.2.0] — 2026-01-09
 
 ### Breaking Changes
