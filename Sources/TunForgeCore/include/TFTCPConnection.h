@@ -30,8 +30,19 @@ typedef NS_ENUM(NSUInteger, TFTCPConnectionTerminationReason) {
     TFTCPConnectionTerminationReasonDestroyed // ext destroy
 };
 
+typedef struct {
+    const void *bytes;
+    NSUInteger length;
+} TFBytesSlice;
+typedef void (^TFTCPReadableBytesCompletion)(void);
+
 typedef void (^TFTCPBecameActiveHandler)(TFTCPConnection *conn);
 typedef void (^TFTCPReadableHandler)(TFTCPConnection *conn, NSData *data);
+typedef void (^TFTCPReadableBytesBatchHandler)(TFTCPConnection *conn,
+                                               const TFBytesSlice *slices,
+                                               NSUInteger sliceCount,
+                                               NSUInteger totalBytesLength,
+                                               TFTCPReadableBytesCompletion completion);
 typedef void (^TFTCPWritableChangedHandler)(TFTCPConnection *conn, BOOL writable);
 typedef void (^TFTCPSentBytesHandler)(TFTCPConnection *conn, NSUInteger sentBytes);
 typedef void (^TFTCPReadEOFHandler)(TFTCPConnection *conn);
@@ -48,9 +59,37 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 /// Fired after markActive succeeds.
 @property (nullable, nonatomic, copy) TFTCPBecameActiveHandler onBecameActive;
 
-/// Downstream data arrived (already tcp_recved in lwIP callback).
-/// Upper layer must process promptly but does not control TCP window.
+/// Compatibility path. Will allocate & copy.
+/// Prefer onReadableBytes for zero-additional-copy at the bridge layer.
 @property (nullable, nonatomic, copy) TFTCPReadableHandler onReadable;
+
+/// Zero-copy receive path. Invoked with one or more contiguous byte slices that
+/// are owned by the connection's internal receive buffer.
+///
+/// Use this instead of `onReadable` when you can process the received bytes
+/// directly (e.g. parsing, forwarding, or encoding) without requiring an extra
+/// copy into an `NSData` instance. This is the most efficient way to consume
+/// inbound data at the bridge layer.
+///
+/// Lifecycle:
+/// - The `bytes` pointers contained in each `TFBytesSlice` are only valid for
+///   the duration of the handler invocation.
+/// - You MUST call the provided `completion` block exactly once for each call
+///   to this handler to signal that you are done with the slices.
+/// - After `completion` returns, the underlying buffers may be reused or freed;
+///   you MUST NOT read from or otherwise access `TFBytesSlice.bytes` beyond
+///   that point.
+/// - If you need to retain any data beyond the call, copy it before invoking
+///   `completion`.
+///
+/// Thread safety:
+/// - The handler is invoked on the connection's internal execution context
+///   (e.g. its event-loop / lwIP callback thread).
+/// - It should be treated as NOT thread-safe: if you share data structures
+///   with other threads, you are responsible for any necessary synchronization.
+/// - Do not block for long periods inside the handler; offload expensive work
+///   to your own queue and copy the data if needed before returning.
+@property (nullable, nonatomic, copy) TFTCPReadableBytesBatchHandler onReadableBytes;
 
 /// Edge changes of sendbuf writability (driven by ERR_MEM / tcp_sent / poll).
 @property (nullable, nonatomic, copy) TFTCPWritableChangedHandler onWritableChanged;
@@ -70,7 +109,27 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 /// One-time transition: marks the connection as established/active.
 - (void)markActive;
 
-/// Enqueue a write (copy-write).
+/// Zero-copy style write API.
+/// Unlike `writeData:`, this method does not create or retain an `NSData`
+/// wrapper for the payload and can be used to avoid an extra copy at the
+/// Objective-C/bridge layer when the bytes are already in contiguous memory.
+///
+/// @param bytes  Pointer to a readable buffer containing at least `length`
+///               bytes. Must be non-NULL when `length > 0`.
+/// @param length Number of bytes to attempt to enqueue for transmission.
+///
+/// @return The number of bytes accepted for transmission. This may be less
+///         than `length` if the underlying send buffer cannot currently accept
+///         more data (e.g. due to backpressure). A return value of `0`
+///         typically indicates that no additional bytes can be written at
+///         this time.
+///
+/// Thread-safety: This method is not inherently thread-safe. Callers must
+/// invoke it from the same thread or dispatch queue that owns the
+/// `TFTCPConnection` instance (typically the connection's event/callback
+/// context).
+- (NSUInteger)writeBytes:(const void *)bytes length:(NSUInteger)length;
+
 - (NSUInteger)writeData:(NSData *)data;
 
 // NOTE:

@@ -26,7 +26,7 @@
  *   2 -> Deep protocol debugging
  */
 #ifndef TUNFORGE_LWIP_DEBUG_PROFILE
-#define TUNFORGE_LWIP_DEBUG_PROFILE 2
+#define TUNFORGE_LWIP_DEBUG_PROFILE 1
 #endif
 
 /* ================================================================

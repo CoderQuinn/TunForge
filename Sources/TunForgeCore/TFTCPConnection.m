@@ -48,13 +48,13 @@ static inline NSString *tf_ipv4_to_string(uint32 addr_network_order) {
 
 static inline u16_t tf_tcp_min_write_ready_bytes(const struct tcp_pcb *pcb) {
     // Pure hint. Keep it small to avoid "stuck writable==NO" under small sndbuf.
-    // Prefer ">= 1 * mss" rather than 4*mss (4*mss can be too strict for small pipes).
+    // Prefer ">= 2 * mss" rather than 4*mss (4*mss can be too strict for small pipes).
     if (!pcb)
         return 0;
     u16_t mss = pcb->mss;
     if (mss == 0)
         mss = TCP_MSS; // fallback
-    return (u16_t)(1 * mss);
+    return (u16_t)(2 * mss);
 }
 
 static inline BOOL tf_tcp_write_ready(struct tcp_pcb *pcb) {
@@ -196,8 +196,8 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     [TFTunForgeLog info:@"TCP connection established"];
     [self notifyActiveOnceLocked];
 
-    // Initial hint: derive from current sndbuf (not forced YES).
-    [self updateWritableLocked:tf_tcp_write_ready(self.pcb)];
+    //    // Initial hint: derive from current sndbuf (not forced YES).
+    //    [self updateWritableLocked:tf_tcp_write_ready(self.pcb)];
 }
 
 - (void)setRecvEnabled:(BOOL)enabled {
@@ -233,12 +233,11 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         info:[NSString stringWithFormat:@"[flow io] Precise ACK to lwIP=%ld", (long)bytes]];
 }
 
-- (NSUInteger)writeData:(NSData *)data {
+- (NSUInteger)writeBytes:(const void *)bytes length:(NSUInteger)length {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
-    if (!data || data.length == 0)
+    if (!bytes || length == 0)
         return 0;
-
     if (!self.alive || !self.pcb)
         return 0;
     if (self.state != TFTCPConnectionActive)
@@ -246,23 +245,20 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     if (self.writeFINFlag)
         return 0;
 
-    const NSUInteger total = data.length;
-    uint64_t remaining = total;
-    uint8_t *bytes = (uint8_t *)data.bytes;
-
+    uint64_t remaining = length;
+    const uint8_t *cur = (const uint8_t *)bytes;
+    BOOL didWrite = NO;
     while (remaining > 0) {
         // lwIP tcp_write takes u16_t len.
         u16_t chunk = (u16_t)MIN((NSUInteger)UINT16_MAX, remaining);
-        err_t e = tcp_write(self.pcb, bytes, chunk, TCP_WRITE_FLAG_COPY);
+        err_t e = tcp_write(self.pcb, cur, chunk, TCP_WRITE_FLAG_COPY);
 
         if (e == ERR_OK) {
             remaining -= chunk;
-            bytes += chunk;
-
-            tcp_output(self.pcb);
+            cur += chunk;
+            didWrite = YES;
         } else if (e == ERR_MEM) {
             // Backpressure fact: sndbuf / queue is full. Ask lwIP to send pending segments.
-            tcp_output(self.pcb);
             [self updateWritableLocked:NO];
             break;
         } else {
@@ -271,7 +267,18 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         }
     }
 
-    return total - (NSUInteger)remaining;
+    if (didWrite && self.pcb) {
+        tcp_output(self.pcb);
+    }
+
+    return (NSUInteger)(length - remaining);
+}
+
+- (NSUInteger)writeData:(NSData *)data {
+    if (!data || data.length == 0) {
+        return 0;
+    }
+    return [self writeBytes:data.bytes length:data.length];
 }
 
 - (void)shutdownWrite {
@@ -563,32 +570,83 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
         return ERR_OK;
     }
 
-    const u16_t tot = p->tot_len;
-
     // Closed-loop uplink backpressure:
     // If upper layer says "pause", DO NOT consume pbuf, let lwIP retry later.
     if (!conn.recvEnabled) {
         return ERR_MEM;
     }
 
-    // Copy bytes out first.
-    NSMutableData *data = [[NSMutableData alloc] initWithLength:tot];
-    if (tot > 0) {
-        pbuf_copy_partial(p, data.mutableBytes, tot, 0);
+    const u16_t tot = p->tot_len;
+    if (tot == 0) {
+        pbuf_free(p);
+        return ERR_OK;
     }
 
     // Ack recv window
     tcp_recved(pcb, tot);
+
+    if (conn.onReadableBytes) {
+        NSUInteger sliceCnt = 0;
+        for (struct pbuf *q = p; q; q = q->next) {
+            sliceCnt++;
+        }
+
+        TFBytesSlice *slices = (TFBytesSlice *)malloc(sizeof(TFBytesSlice) * sliceCnt);
+        if (!slices) {
+            // fallback: drop safely
+            pbuf_free(p);
+            return ERR_OK;
+        }
+
+        struct pbuf *q = p;
+        for (NSUInteger i = 0; i < sliceCnt; i++) {
+            slices[i].bytes = q->payload;
+            slices[i].length = q->len;
+            q = q->next;
+        }
+
+        weakify(conn);
+        [TFGlobalScheduler.shared connectionsPerformAsync:^{
+            strongify(conn);
+            if (!conn || !conn.alive || !conn.onReadableBytes) {
+                // must free even if handler gone
+                [TFGlobalScheduler.shared packetsPerformAsync:^{
+                    free(slices);
+                    pbuf_free(p);
+                }];
+                return;
+            }
+
+            conn.onReadableBytes(conn, slices, sliceCnt, tot, ^{
+                [TFGlobalScheduler.shared packetsPerformAsync:^{
+                    free(slices);
+                    pbuf_free(p);
+                }];
+            });
+        }];
+
+        return ERR_OK;
+    } else if (conn.onReadable) {
+        // Copy bytes out first.
+        void *buf = malloc(tot);
+        if (!buf) {
+            pbuf_free(p);
+            return ERR_OK;
+        }
+
+        pbuf_copy_partial(p, buf, tot, 0);
+        NSData *data = [[NSData alloc] initWithBytesNoCopy:buf length:tot freeWhenDone:YES];
+
+        weakify(conn);
+        [TFGlobalScheduler.shared connectionsPerformAsync:^{
+            strongify(conn);
+            if (!conn || !conn.alive || !conn.onReadable)
+                return;
+            conn.onReadable(conn, data);
+        }];
+    }
+
     pbuf_free(p);
-
-    weakify(conn);
-    [TFGlobalScheduler.shared connectionsPerformAsync:^{
-        strongify(conn);
-        if (!conn || !conn.alive || !conn.onReadable)
-            return;
-        conn.onReadable(conn, data);
-    }];
-
     return ERR_OK;
 }
 
