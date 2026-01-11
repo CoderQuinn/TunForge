@@ -75,7 +75,7 @@ static err_t tf_tcp_poll(void *arg, struct tcp_pcb *pcb);
 static void tf_tcp_err(void *arg, err_t err);
 
 #if LWIP_TCP_PCB_NUM_EXT_ARGS
-static void tf_tcp_extarg_destroy(u8_t id, void *arg);
+static void tf_tcp_extarg_destroy(u8_t ID, void *arg);
 static const struct tcp_ext_arg_callbacks tf_tcp_extarg_cbs;
 #endif
 
@@ -275,6 +275,8 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 }
 
 - (NSUInteger)writeData:(NSData *)data {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+    
     if (!data || data.length == 0) {
         return 0;
     }
@@ -422,9 +424,9 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     weakify(self);
     [TFGlobalScheduler.shared connectionsPerformAsync:^{
         strongify(self);
-        if (!self || !self.onTerminated)
-            return;
-        self.onTerminated(self, reason);
+        if (self && self.onTerminated) {
+            self.onTerminated(self, reason);
+        }
     }];
 }
 
@@ -501,9 +503,9 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     [self terminateLocked:TFTCPConnectionTerminationReasonDestroyed];
 }
 
-static void tf_tcp_extarg_destroy(u8_t id, void *arg) {
+static void tf_tcp_extarg_destroy(u8_t ID, void *arg) {
     TF_ASSERT_ON_PACKETS_QUEUE();
-    LWIP_UNUSED_ARG(id);
+    LWIP_UNUSED_ARG(ID);
 
     if (!arg)
         return;
