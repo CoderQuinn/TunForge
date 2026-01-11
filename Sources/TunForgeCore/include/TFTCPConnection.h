@@ -89,21 +89,6 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 /// Unlike `writeData:`, this method does not create or retain an `NSData`
 /// wrapper for the payload and can be used to avoid an extra copy at the
 /// Objective-C/bridge layer when the bytes are already in contiguous memory.
-///
-/// @param bytes  Pointer to a readable buffer containing at least `length`
-///               bytes. Must be non-NULL when `length > 0`.
-/// @param length Number of bytes to attempt to enqueue for transmission.
-///
-/// @return The number of bytes accepted for transmission. This may be less
-///         than `length` if the underlying send buffer cannot currently accept
-///         more data (e.g. due to backpressure). A return value of `0`
-///         typically indicates that no additional bytes can be written at
-///         this time.
-///
-/// Thread-safety: This method is not inherently thread-safe. Callers must
-/// invoke it from the same thread or dispatch queue that owns the
-/// `TFTCPConnection` instance (typically the connection's event/callback
-/// context).
 - (NSUInteger)writeBytes:(const void *)bytes length:(NSUInteger)length;
 
 - (NSUInteger)writeData:(NSData *)data;
