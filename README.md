@@ -1,137 +1,94 @@
 # TunForge
+[![CI](https://github.com/CoderQuinn/TunForge/actions/workflows/ci.yml/badge.svg)](
+https://github.com/CoderQuinn/TunForge/actions/workflows/ci.yml
+)
+![License](https://img.shields.io/github/license/CoderQuinn/TunForge)
+![Status](https://img.shields.io/badge/status-core_stable_(pre--1.0)-blue)
+![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20macOS-lightgrey)
+![SPM](https://img.shields.io/badge/SPM-compatible-brightgreen)
 
-**Lightweight Tun2Socks TCP core for iOS / macOS**
+Lightweight Tun2Socks TCP core for iOS/macOS.
 
-TunForge is a lightweight **Tun2Socks-style TCP interception core** built on lwIP, designed for Network Extension–based VPN and proxy applications on Apple platforms.
+### Background
 
-It provides **transparent TCP interception, deterministic lifecycle management, and a minimal socket abstraction**, intended to be embedded as a low-level transport component.
+TunForge is the fulfillment of an earlier commitment made in
+[YYTun2Socks](https://github.com/CoderQuinn/YYTun2Socks).
 
-> **Status**: `0.2.0` — Core architecture stabilized (pre-1.0)
+The original YYTun2Socks project was an early, immature exploration
+of tun2socks-style TCP interception on iOS.
+At the time, the implementation suffered from unclear boundaries
+and limited lifecycle control.
 
----
+TunForge revisits the same problem space with a clean-slate design,
+clear responsibility boundaries, and a production-oriented mindset.
 
 ## Overview
 
-TunForge is **not** a full VPN or proxy solution.
+- Tun2Socks‑style TCP interception built on lwIP for TUN-based VPN/proxy.
+- Exposes connections as manageable socket-like objects.
 
-It focuses exclusively on the **TCP interception layer**: capturing inbound TCP connections from a TUN interface and exposing them as manageable socket-like objects for upper-layer routing and proxy logic.
+## Highlights
 
----
+- Transparent TCP interception from TUN
+- Deterministic lifecycle across stack/connection
+- Minimal callback API
+- Zero-copy receive `onReadableBytes` and efficient send `writeBytes:length:`
 
-## Non-Goals (0.2.x)
+## Scope & Roadmap
 
-The following are intentionally out of scope:
+TunForge is a low-level user-space networking data plane.
 
-- IPv6 support
-- Full UDP proxying  
-  (only fragmented UDP paths are handled; non-fragmented packets bypass)
-- Traffic statistics or metrics
+Planned evolution focuses on:
+- TCP lifecycle robustness
+- IPv4 / IPv6 parity
+- ICMP support (e.g. ping, basic diagnostics)
+- Minimal IPv4 control-plane protocols when required
 
-These constraints are deliberate and may be revisited in later versions.
+Explicitly out of scope (no short- or mid-term plan):
+- Full UDP proxying semantics
+- Fragmented UDP handling
+- Application-layer protocols (HTTP / SOCKS)
+- Traffic metrics or accounting
 
----
+Fragmented UDP is intentionally excluded due to its
+high complexity and low practical return in typical VPN scenarios.
 
-## Installation
+TunForge aims to be boring, predictable, and correct.
 
-TunForge is distributed via **Swift Package Manager**.
+## UDP Handling Policy
 
-Add the repository to your project dependencies and pin it to version `0.2.0` or later.
+TunForge does not implement full UDP proxying.
+
+- Non-fragmented UDP packets are handled via direct/bypass paths
+  for maximum performance and simplicity.
+- Fragmented UDP packets are intentionally not supported.
+
+In practice, fragmented UDP traffic is rare in modern VPN scenarios,
+while its reassembly complexity and memory cost are high.
+The cost–benefit tradeoff does not justify implementation.
+
+Higher-level components (such as NetForge) are responsible for
+UDP direct/bypass handling and application-layer proxy logic.
+
+## Installation (SPM)
 
 ```swift
 .package(
     url: "https://github.com/CoderQuinn/TunForge",
-    from: "0.2.0"
+    from: "0.2.2"
 )
 ```
 
-## Minimal Integration (Swift)
+## Quick Use
 
-TunForge is designed to be embedded in a Network Extension tunnel/proxy.
-
-Key rules:
-
-- You must configure `TFGlobalScheduler` **before** the first `TFIPStack.defaultStack()` acquire.
-- All `TFIPStack` and lwIP-facing calls must run on `packetsQueue`.
-- `TFIPStackDelegate` is invoked on `connectionsQueue` and its `handler` must be called exactly once.
-
-```swift
-import Foundation
-import TunForgeCore
-import TunForge // optional: adds Swift helpers (e.g. setOutboundHandler)
-
-final class TunForgeCoreDriver: NSObject, TFIPStackDelegate {
-    private let scheduler = TFGlobalScheduler.shared()
-    private let packetsQueue = DispatchQueue(label: "tunforge.packets")
-    private let connectionsQueue = DispatchQueue(label: "tunforge.connections")
-
-    private var stack: TFIPStack?
-
-    func start(writeToTun: @escaping (_ packets: [Data], _ families: [Int32]) -> Void) {
-        // Required for internal queue assertions.
-        TFBindQueueSpecific(
-            packetsQueue,
-            TFGetPacketsQueueKey(),
-            UnsafeMutableRawPointer(mutating: TFGetPacketsQueueKey())
-        )
-        TFBindQueueSpecific(
-            connectionsQueue,
-            TFGetConnectionsQueueKey(),
-            UnsafeMutableRawPointer(mutating: TFGetConnectionsQueueKey())
-        )
-
-        // Must be done once, before using TFIPStack.
-        scheduler.configure(withPacketsQueue: packetsQueue, connectionsQueue: connectionsQueue)
-
-        let stack = TFIPStack.defaultStack()
-        self.stack = stack
-
-        stack.delegate = self
-        stack.setOutboundHandler { packets, families in
-            // families is currently AF_INET for IPv4.
-            writeToTun(packets, families)
-        }
-
-        scheduler.packetsPerformAsync {
-            stack.start()
-        }
-    }
-
-    func inputPacketFromTun(_ packet: Data) {
-        guard let stack else { return }
-        scheduler.packetsPerformAsync {
-            stack.inputPacket(packet)
-        }
-    }
-
-  // MARK: - TFIPStackDelegate (runs on connectionsQueue)
-
-    func didAcceptNewTCPConnection(
-        _ connection: TFTCPConnection,
-        handler: @escaping (Bool) -> Void
-    ) {
-        // Configure callbacks (invoked on connectionsQueue).
-        connection.onReadable = { conn, data in
-            // Handle upstream bytes (e.g. forward to your proxy transport).
-            _ = (conn, data)
-        }
-
-        connection.onTerminated = { conn, reason in
-            _ = (conn, reason)
-        }
-
-        // MUST be called exactly once.
-        handler(true)
-
-        // Finish backlog establishment and enable receive on packetsQueue.
-        scheduler.packetsPerformAsync {
-            connection.markActive()
-            connection.setRecvEnabled(true)
-        }
-    }
-}
-```
-
----
+- Configure `TFGlobalScheduler` with `packetsQueue` and `connectionsQueue` **before** the first `TFIPStack.defaultStack()`.
+- Set `TFIPStack.delegate`; in `didAcceptNewTCPConnection`, call `handler(true)` exactly once.
+- On `packetsQueue`: call `connection.markActive()` then `connection.setRecvEnabled(true)` to enable receive.
+- Receive:
+  - Prefer `onReadableBytes` (batch slices); call `completion()` when done.
+  - Or use `onReadable` for compatibility (allocates & copies).
+- Send: `writeBytes(_:length:)` (no extra wrapper) or `writeData(_:)`.
+- Close: `shutdownWrite()` (half-close), `gracefulClose()`, or `abort()`.
 
 ## Requirements
 
@@ -139,8 +96,14 @@ final class TunForgeCoreDriver: NSObject, TFIPStackDelegate {
 - Swift 5.9+
 - Network Extension entitlement
 
----
+## Acknowledgements
+
+- lwIP — Lightweight TCP/IP stack: https://www.nongnu.org/lwip/
+- tun2socks (zhuhaow): https://github.com/zhuhaow/tun2socks
 
 ## License
 
 Apache License 2.0
+
+> TunForge is part of the QuantumLink VPN prototype.  
+> Higher-level protocol routing (NetForge) is under active refinement.
