@@ -47,9 +47,9 @@ void lwip_platform_assert(const char *expr, const char *file, int line) {
     );
 
 #if LWIP_DEBUG
-    __builtin_debugtrap();  // Xcode 可直接停住
+//    __builtin_debugtrap();  // Xcode 可直接停住
 #else
-    abort();                // 可符号化 crash
+//    abort();
 #endif
 }
 

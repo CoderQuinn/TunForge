@@ -305,9 +305,9 @@ static void tunforge_netif_setup(void *state) {
 #pragma mark - Accept bridge (lwIP -> ObjC)
 static err_t tunforge_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
     TF_ASSERT_ON_PACKETS_QUEUE();
-
     if (err != ERR_OK || !newpcb)
         return ERR_ABRT;
+    tcp_backlog_delayed(newpcb);
 
     TFIPStack *stack = get_stack_from_arg(arg);
     if (!stack) {
@@ -336,12 +336,10 @@ static err_t tunforge_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
         [delegate didAcceptNewTCPConnection:connection
                                     handler:^(BOOL accept) {
                                         [TFGlobalScheduler.shared packetsPerformAsync:^{
-                                            if (!stack)
+                                            if (!stack || !newpcb)
                                                 return;
                                             if (!accept) {
                                                 tcp_abort(newpcb);
-                                            } else {
-                                                tcp_backlog_delayed(newpcb);
                                             }
                                         }];
                                     }];

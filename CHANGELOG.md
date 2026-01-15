@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1] — 2026-01-15
+
+### Fixed
+- Fix TOCTOU race in TCP read/termination callbacks
+- Prevent use-after-detach callback invocation
+- Fix potential unbounded memory growth under high concurrency
+- This release contains critical stability fixes and is strongly recommended.
+
 ## [0.3.0] — 2026-01-11
 
 ### Performance
