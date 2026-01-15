@@ -311,6 +311,7 @@ static err_t tunforge_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
 
     TFIPStack *stack = get_stack_from_arg(arg);
     if (!stack) {
+        tcp_backlog_accepted(newpcb);
         tcp_abort(newpcb);
         return ERR_ABRT;
     }
@@ -318,12 +319,14 @@ static err_t tunforge_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
     TFTCPConnection *connection = [[TFTCPConnection alloc] initWithTCPPcb:newpcb];
     if (!connection) {
         [TFTunForgeLog warn:@"TCP accept: connection init failed"];
+        tcp_backlog_accepted(newpcb);
         tcp_abort(newpcb);
         return ERR_ABRT;
     }
 
     id<TFIPStackDelegate> delegate = stack.delegate;
     if (!delegate || ![delegate respondsToSelector:@selector(didAcceptNewTCPConnection:handler:)]) {
+        tcp_backlog_accepted(newpcb);
         tcp_abort(newpcb);
         return ERR_ABRT;
     }
@@ -339,6 +342,7 @@ static err_t tunforge_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
                                             if (!stack || !newpcb)
                                                 return;
                                             if (!accept) {
+                                                tcp_backlog_accepted(newpcb);
                                                 tcp_abort(newpcb);
                                             }
                                         }];
