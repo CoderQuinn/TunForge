@@ -336,10 +336,10 @@ static err_t tunforge_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
         [delegate didAcceptNewTCPConnection:connection
                                     handler:^(BOOL accept) {
                                         [TFGlobalScheduler.shared packetsPerformAsync:^{
-                                            if (!stack || !newpcb)
+                                            if (!stack || !connection || !connection.alive)
                                                 return;
                                             if (!accept) {
-                                                tcp_abort(newpcb);
+                                                [connection abort];
                                             }
                                         }];
                                     }];
