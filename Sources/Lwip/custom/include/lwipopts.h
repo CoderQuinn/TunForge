@@ -101,7 +101,7 @@
 #define TUNFORGE_TCP_EXTARG_ID        0
 
 #define LWIP_TCP_KEEPALIVE       1
-#define TCP_KEEPCNT_DEFAULT      75
+#define TCP_KEEPCNT_DEFAULT      9
 #define TCP_KEEPIDLE_DEFAULT   7200
 
 /* ================================================================
