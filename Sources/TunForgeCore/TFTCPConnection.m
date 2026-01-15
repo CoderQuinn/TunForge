@@ -429,7 +429,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     weakify(self);
     [TFGlobalScheduler.shared connectionsPerformAsync:^{
         strongify(self);
-        if (!self || !onTerminatedCopy) {
+        if (!self) {
             return;
         }
 
