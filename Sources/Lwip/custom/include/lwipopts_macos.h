@@ -17,10 +17,10 @@
  * Memory / allocator
  * ================================================================ */
 
-#define MEM_LIBC_MALLOC  1
-#define MEMP_MEM_MALLOC  1
+#define MEM_LIBC_MALLOC  0
+#define MEMP_MEM_MALLOC  0
 #define MEM_ALIGNMENT    8
-#define MEM_SIZE       (16 * 1024 * 1024)
+#define MEM_SIZE       (32 * 1024 * 1024)
 
 
 /* ================================================================
@@ -35,7 +35,7 @@
  * TCP send buffering
  * ================================================================ */
 #define TCP_SND_BUF    (64 * 1024 - 1)
-#define TCP_SNDLOWAT   (1 * TCP_MSS)
+#define TCP_SNDLOWAT   (2 * TCP_MSS)
 
 
 /* ================================================================
