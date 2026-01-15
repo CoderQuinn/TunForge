@@ -307,7 +307,6 @@ static err_t tunforge_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
     TF_ASSERT_ON_PACKETS_QUEUE();
     if (err != ERR_OK || !newpcb)
         return ERR_ABRT;
-    tcp_backlog_delayed(newpcb);
 
     TFIPStack *stack = get_stack_from_arg(arg);
     if (!stack) {
@@ -329,6 +328,8 @@ static err_t tunforge_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
     }
 
     [TFTunForgeLog debug:@"TCP connection accepted"];
+
+    tcp_backlog_delayed(newpcb);
 
     weakify(stack);
     [TFGlobalScheduler.shared connectionsPerformAsync:^{
