@@ -73,7 +73,7 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 /// Peer ACKed sent data (tcp_sent); callback provides len (u16).
 @property (nullable, nonatomic, copy) TFTCPSentBytesHandler onSentBytes;
 
-@property (nonatomic, copy, nullable) TFTCPReadEOFHandler onReadEOF;
+@property (nullable, nonatomic, copy) TFTCPReadEOFHandler onReadEOF;
 
 /// Termination callback (once).
 @property (nullable, nonatomic, copy) TFTCPTerminatedHandler onTerminated;
