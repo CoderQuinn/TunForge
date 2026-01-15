@@ -397,8 +397,6 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         strongify(self);
         if (!self || !self.alive)
             return;
-        if (!onReadEOFCopy)
-            return;
         onReadEOFCopy(self);
     }];
 }
