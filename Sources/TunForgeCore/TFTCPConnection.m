@@ -195,9 +195,6 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 
     [TFTunForgeLog info:@"TCP connection established"];
     [self notifyActiveOnceLocked];
-
-    //    // Initial hint: derive from current sndbuf (not forced YES).
-    //    [self updateWritableLocked:tf_tcp_write_ready(self.pcb)];
 }
 
 - (void)setRecvEnabled:(BOOL)enabled {
@@ -276,7 +273,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 
 - (NSUInteger)writeData:(NSData *)data {
     TF_ASSERT_ON_PACKETS_QUEUE();
-    
+
     if (!data || data.length == 0) {
         return 0;
     }
@@ -342,21 +339,21 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 
     err_t err = tcp_close(self.pcb);
     switch (err) {
-    case ERR_OK: {
+    case ERR_OK:
         // After tcp_close, pcb may be freed by lwIP; never touch it again.
         self.pcb = NULL;
         self.pendingClose = NO;
         [self terminateLocked:TFTCPConnectionTerminationReasonClose];
-    } break;
+        break;
 
-    case ERR_MEM: {
+    case ERR_MEM:
         // lwIP couldn't close now (unsent data). Retry in poll.
         self.pendingClose = YES;
-    } break;
+        break;
 
-    default: {
+    default:
         [self abortLocked:TFTCPConnectionTerminationReasonAbort];
-    } break;
+        break;
     }
 }
 
@@ -391,14 +388,17 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 
     [TFTunForgeLog info:@"TCP recv FIN (EOF)"];
 
+    TFTCPReadEOFHandler onReadEOFCopy = self.onReadEOF;
+    if (!onReadEOFCopy)
+        return;
+
     weakify(self);
     [TFGlobalScheduler.shared connectionsPerformAsync:^{
         strongify(self);
         if (!self || !self.alive)
             return;
-        if (!self.onReadEOF)
-            return;
-        self.onReadEOF(self);
+        
+        onReadEOFCopy(self);
     }];
 }
 
@@ -421,12 +421,18 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 
     [TFTunForgeLog info:[NSString stringWithFormat:@"TCP terminated, reason=%ld", (long)reason]];
 
+    TFTCPTerminatedHandler onTerminatedCopy = self.onTerminated;
+    if (!onTerminatedCopy)
+        return;
+
     weakify(self);
     [TFGlobalScheduler.shared connectionsPerformAsync:^{
         strongify(self);
-        if (self && self.onTerminated) {
-            self.onTerminated(self, reason);
+        if (!self) {
+            return;
         }
+
+        onTerminatedCopy(self, reason);
     }];
 }
 
@@ -435,21 +441,22 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 - (void)clearCallbackLocked {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
-    if (!self.pcb)
-        return;
     struct tcp_pcb *pcb = self.pcb;
-
-    tcp_arg(pcb, NULL);
-    tcp_recv(pcb, NULL);
-    tcp_sent(pcb, NULL);
-    tcp_poll(pcb, NULL, 0);
-    tcp_err(pcb, NULL);
+    if (pcb) {
+        tcp_arg(pcb, NULL);
+        tcp_recv(pcb, NULL);
+        tcp_sent(pcb, NULL);
+        tcp_poll(pcb, NULL, 0);
+        tcp_err(pcb, NULL);
 
 #if LWIP_TCP_PCB_NUM_EXT_ARGS
-    tcp_ext_arg_set(pcb, TUNFORGE_TCP_EXTARG_ID, NULL);
+        tcp_ext_arg_set(pcb, TUNFORGE_TCP_EXTARG_ID, NULL);
 #endif
+    }
 
-    [self.pcbRef invalidate];
+    if (self.pcbRef) {
+        [self.pcbRef invalidate];
+    }
 }
 
 - (void)notifyActiveOnceLocked {
@@ -459,14 +466,17 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         return;
     self.didNotifyActive = YES;
 
+    TFTCPBecameActiveHandler onBecameActiveCopy = self.onBecameActive;
+    if (!onBecameActiveCopy)
+        return;
+
     weakify(self);
     [TFGlobalScheduler.shared connectionsPerformAsync:^{
         strongify(self);
         if (!self || !self.alive)
             return;
-        if (!self.onBecameActive)
-            return;
-        self.onBecameActive(self);
+
+        onBecameActiveCopy(self);
     }];
 }
 
@@ -477,14 +487,17 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         return;
     self.writable = newValue;
 
+    TFTCPWritableChangedHandler onWritableChangedCopy = self.onWritableChanged;
+    if (!onWritableChangedCopy)
+        return;
+
     weakify(self);
     [TFGlobalScheduler.shared connectionsPerformAsync:^{
         strongify(self);
         if (!self || !self.alive)
             return;
-        if (!self.onWritableChanged)
-            return;
-        self.onWritableChanged(self, newValue);
+
+        onWritableChangedCopy(self, newValue);
     }];
 }
 
@@ -586,8 +599,9 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
 
     // Ack recv window
     tcp_recved(pcb, tot);
-
-    if (conn.onReadableBytes) {
+    TFTCPReadableBytesBatchHandler onReadableBytesCopy = conn.onReadableBytes;
+    
+    if (onReadableBytesCopy) {
         NSUInteger sliceCnt = 0;
         for (struct pbuf *q = p; q; q = q->next) {
             sliceCnt++;
@@ -610,7 +624,7 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
         weakify(conn);
         [TFGlobalScheduler.shared connectionsPerformAsync:^{
             strongify(conn);
-            if (!conn || !conn.alive || !conn.onReadableBytes) {
+            if (!conn || !conn.alive) {
                 // must free even if handler gone
                 [TFGlobalScheduler.shared packetsPerformAsync:^{
                     free(slices);
@@ -619,7 +633,7 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
                 return;
             }
 
-            conn.onReadableBytes(conn, slices, sliceCnt, tot, ^{
+            onReadableBytesCopy(conn, slices, sliceCnt, tot, ^{
                 [TFGlobalScheduler.shared packetsPerformAsync:^{
                     free(slices);
                     pbuf_free(p);
@@ -639,12 +653,13 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
         pbuf_copy_partial(p, buf, tot, 0);
         NSData *data = [[NSData alloc] initWithBytesNoCopy:buf length:tot freeWhenDone:YES];
 
+        TFTCPReadableHandler onReadableCopy = conn.onReadable;
         weakify(conn);
         [TFGlobalScheduler.shared connectionsPerformAsync:^{
             strongify(conn);
-            if (!conn || !conn.alive || !conn.onReadable)
+            if (!conn || !conn.alive)
                 return;
-            conn.onReadable(conn, data);
+            onReadableCopy(conn, data);
         }];
     }
 
@@ -662,13 +677,16 @@ static err_t tf_tcp_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
     // Observer-only hint
     [conn updateWritableLocked:tf_tcp_write_ready(pcb)];
 
-    weakify(conn);
-    [TFGlobalScheduler.shared connectionsPerformAsync:^{
-        strongify(conn);
-        if (!conn || !conn.alive || !conn.onSentBytes)
-            return;
-        conn.onSentBytes(conn, len);
-    }];
+    TFTCPSentBytesHandler onSentBytesCopy = conn.onSentBytes;
+    if (onSentBytesCopy) {
+        weakify(conn);
+        [TFGlobalScheduler.shared connectionsPerformAsync:^{
+            strongify(conn);
+            if (!conn || !conn.alive)
+                return;
+            onSentBytesCopy(conn, len);
+        }];
+    }
 
     return ERR_OK;
 }
