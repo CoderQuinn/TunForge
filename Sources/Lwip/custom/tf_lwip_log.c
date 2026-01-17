@@ -62,8 +62,14 @@ void tf_log_init(const char *subsystem) {
     // Free old subsystem if re-initializing (though typically called once)
     if (g_subsystem) {
         free((void *)g_subsystem);
+        g_subsystem = NULL;
     }
     g_subsystem = strdup(subsystem);
+    if (!g_subsystem) {
+        // Memory allocation failed, disable logging
+        s_enabled = false;
+        return;
+    }
     s_enabled = true;
 #if defined(TUNFORGE_LWIP_DEBUG_PROFILE)
     #if TUNFORGE_LWIP_DEBUG_PROFILE == 2
