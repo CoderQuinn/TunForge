@@ -9,10 +9,12 @@
 #include "lwip/opt.h"
 #include "FLLogC.h"
 #include <dispatch/dispatch.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 
 static FLLogCHandle g_lwip_log = NULL;
+// Process-lifetime subsystem name. Typically set once via tf_log_init.
 static const char *g_subsystem = NULL;
 static bool s_enabled = false;
 static tf_lwip_log_level_t s_level = TF_LWIP_LOG_LEVEL_WARN;
@@ -57,8 +59,16 @@ static inline FLLogCHandle lwip_log(void) {
 void tf_log_init(const char *subsystem) {
     if (!subsystem) return;
 
+    // Free old subsystem if re-initializing (though typically called once)
+    if (g_subsystem) {
+        free((void *)g_subsystem);
+        g_subsystem = NULL;
+    }
+    g_subsystem = strdup(subsystem);
     if (!g_subsystem) {
-        g_subsystem = strdup(subsystem);
+        // Memory allocation failed, disable logging
+        s_enabled = false;
+        return;
     }
     s_enabled = true;
 #if defined(TUNFORGE_LWIP_DEBUG_PROFILE)
