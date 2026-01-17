@@ -18,6 +18,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// Execution is asynchronous.
 typedef void (^OutboundHandler)(NSArray<NSData *> *packets, NSArray<NSNumber *> *families);
 
+typedef void (^TFAcceptHandler)(BOOL accept);
+
 #pragma mark - Delegate
 
 @protocol TFIPStackDelegate <NSObject>
@@ -28,7 +30,7 @@ typedef void (^OutboundHandler)(NSArray<NSData *> *packets, NSArray<NSNumber *> 
 /// - This is called asynchronously on the delegate queue.
 /// - The handler MUST be called exactly once.
 - (void)didAcceptNewTCPConnection:(TFTCPConnection *)connection
-                          handler:(void (^)(BOOL accept))handler;
+                          handler:(TFAcceptHandler)handler;
 
 @end
 
