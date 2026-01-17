@@ -161,9 +161,13 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         return;
 
     self.pcbRef = [[TFObjectRef alloc] initWithObject:self];
-    void *arg = [self.pcbRef retainedVoidPointer];
 
+#if LWIP_TCP_PCB_NUM_EXT_ARGS
+    void *arg = [self.pcbRef retainedVoidPointer];
     tcp_arg(pcb, (__bridge void *)self.pcbRef);
+#else
+    tcp_arg(pcb, (__bridge void *)self.pcbRef);
+#endif
     tcp_recv(pcb, tf_tcp_recv);
     tcp_sent(pcb, tf_tcp_sent);
     tcp_poll(pcb, tf_tcp_poll, 2);
