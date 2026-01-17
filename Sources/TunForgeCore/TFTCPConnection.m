@@ -264,7 +264,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
     if (data.length > UINT16_MAX) {
-        [TFTunForgeLog warn:@"writeData length exceeds UINT16_MAX; reject send"];
+        [TFTunForgeLog error:@"writeData length exceeds UINT16_MAX; reject send"];
         return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteError};
     }
     return [self writeBytes:data.bytes length:data.length];
