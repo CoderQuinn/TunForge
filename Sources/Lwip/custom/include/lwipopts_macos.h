@@ -25,8 +25,8 @@
  * TCP receive window
  * ================================================================ */
 #define LWIP_WND_SCALE   1
-#define TCP_RCV_SCALE    4                  // 2^4 = 16 (16MB receive window)
-#define TCP_WND          65535               // Max u16 value, corresponds to 16MB with scaling
+#define TCP_RCV_SCALE    4                  // 2^4 = 16; window is TCP_WND * 16 when scaling is enabled
+#define TCP_WND          65535              // Max u16 value; with scale=4 this is 65535 * 16 ≈ 1 MB window
 
 /* ================================================================
  * TCP send buffering
