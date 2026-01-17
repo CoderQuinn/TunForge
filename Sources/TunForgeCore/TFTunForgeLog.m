@@ -20,11 +20,21 @@ tunforge.tcp         // TFTCPConnection / socket
 
 static BOOL s_enabled = NO;
 static FLLogOCHandle s_log;
+static TFTunForgeLogLevel s_level = TFTunForgeLogLevelWarn;
+
+static inline BOOL tf_should_log(TFTunForgeLogLevel level) {
+    if (s_level == TFTunForgeLogLevelOff)
+        return NO;
+    if (!s_enabled || s_log == NULL)
+        return NO;
+    return level >= s_level;
+}
 
 + (void)initializeLogging {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         s_enabled = YES;
+        s_level = TFTunForgeLogLevelWarn;
 
         tf_log_init("TunForge.lwip");
 
@@ -37,30 +47,34 @@ static FLLogOCHandle s_log;
     s_enabled = enabled;
 }
 
-+ (BOOL)isEnabled {
-    return s_enabled && s_log != NULL;
++ (void)setLevel:(TFTunForgeLogLevel)level {
+    s_level = level;
+}
+
++ (TFTunForgeLogLevel)level {
+    return s_level;
 }
 
 + (void)info:(NSString *)message {
-    if (![self isEnabled])
+    if (!tf_should_log(TFTunForgeLogLevelInfo))
         return;
     FLLogOCInfoH(s_log, message.UTF8String);
 }
 
 + (void)debug:(NSString *)message {
-    if (![self isEnabled])
+    if (!tf_should_log(TFTunForgeLogLevelDebug))
         return;
     FLLogOCDebugH(s_log, message.UTF8String);
 }
 
 + (void)warn:(NSString *)message {
-    if (![self isEnabled])
+    if (!tf_should_log(TFTunForgeLogLevelWarn))
         return;
     FLLogOCWarnH(s_log, message.UTF8String);
 }
 
 + (void)error:(NSString *)message {
-    if (![self isEnabled])
+    if (!tf_should_log(TFTunForgeLogLevelError))
         return;
     FLLogOCErrorH(s_log, message.UTF8String);
 }

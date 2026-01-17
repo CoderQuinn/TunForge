@@ -7,6 +7,7 @@
 
 #import "TFGlobalScheduler.h"
 #import "TFQueueHelpers.h"
+#import "TFTunForgeLog.h"
 #import <os/lock.h>
 
 @interface TFGlobalScheduler () {
@@ -57,6 +58,8 @@ static TFGlobalScheduler *_instance;
         self.packetsQueue = packetsQueue;
         self.connectionsQueue = connectionsQueue;
         self.configured = YES;
+
+        [TFTunForgeLog info:@"TFGlobalScheduler configured"];
     } @finally {
         os_unfair_lock_unlock(&_configLock);
     }

@@ -30,6 +30,18 @@ typedef NS_ENUM(NSUInteger, TFTCPConnectionTerminationReason) {
     TFTCPConnectionTerminationReasonDestroyed // ext destroy
 };
 
+typedef NS_ENUM(NSUInteger, TFTCPWriteStatus) {
+    TFTCPWriteOK,
+    TFTCPWriteWouldBlock,
+    TFTCPWriteClosed,
+    TFTCPWriteError
+};
+
+typedef struct {
+    NSUInteger written;
+    TFTCPWriteStatus status;
+} TFTCPWriteResult;
+
 typedef struct {
     const void *bytes;
     NSUInteger length;
@@ -86,18 +98,17 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 - (void)markActive;
 
 /// Zero-copy style write API.
-/// Unlike `writeData:`, this method does not create or retain an `NSData`
-/// wrapper for the payload and can be used to avoid an extra copy at the
-/// Objective-C/bridge layer when the bytes are already in contiguous memory.
-- (NSUInteger)writeBytes:(const void *)bytes length:(NSUInteger)length;
+/// NOTE:
+/// Caller MUST ensure length <= UINT16_MAX (65535).
+- (TFTCPWriteResult)writeBytes:(const void *)bytes length:(NSUInteger)length;
 
-- (NSUInteger)writeData:(NSData *)data;
+- (TFTCPWriteResult)writeData:(NSData *)data;
 
-// NOTE:
-// Used only in precise-ACK, experimental unused.
-- (void)ackRecvBytes:(NSUInteger)bytes;
+// Precise receive-window credit (ACK) to lwIP.
+// MUST call this after bytes are copied/enqueued in user-space.
+- (void)creditReceiveWindow:(NSUInteger)bytes;
 
-- (void)setRecvEnabled:(BOOL)enabled;
+- (void)setReceiveEnabled:(BOOL)enabled;
 
 /// Half-close (send FIN; closes the send direction).
 - (void)shutdownWrite;

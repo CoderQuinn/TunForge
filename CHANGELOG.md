@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0] — 2026-01-17
+
+### Fixed
+- Guard `outboundHandler` to avoid crash when unset.
+- Make `TFIPStack` restartable by resetting `ready` and rebuilding `stackRef` on start.
+- Reject oversized `writeData` calls to avoid implicit truncation.
+- Adjust logging levels and add warnings for TCP errors/oversized writes.
+- Remove high-frequency debug logs to reduce noise.
+
 ## [0.3.1] — 2026-01-15
 
 ### Fixed
@@ -31,9 +40,9 @@
 
 - Public API/integration contract updated (0.1.x -> 0.2.x)
 - `TFGlobalScheduler` must be configured once **before** the first `TFIPStack.defaultStack()` acquire
-- All lwIP-facing calls (`start/stop/inputPacket`, and `TFTCPConnection.markActive/setRecvEnabled`) must run on `TFGlobalScheduler.packetsQueue`
+- All lwIP-facing calls (`start/stop/inputPacket`, and `TFTCPConnection.markActive/setReceiveEnabled`) must run on `TFGlobalScheduler.packetsQueue`
 - `TFIPStackDelegate.didAcceptNewTCPConnection(...handler:)` is invoked on `connectionsQueue` and the `handler` must be called exactly once
-- Accepted connections default to receive paused; upper layer must explicitly `markActive()` and `setRecvEnabled(true)` when ready
+- Accepted connections default to receive paused; upper layer must explicitly `markActive()` and `setReceiveEnabled(true)` when ready
 
 ### Packaging & Docs
 
