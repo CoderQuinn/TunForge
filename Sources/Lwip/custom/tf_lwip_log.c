@@ -9,6 +9,7 @@
 #include "lwip/opt.h"
 #include "FLLogC.h"
 #include <dispatch/dispatch.h>
+#include <string.h>
 #include <stdarg.h>
 
 static FLLogCHandle g_lwip_log = NULL;
