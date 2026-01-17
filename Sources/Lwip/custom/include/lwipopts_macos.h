@@ -38,7 +38,13 @@
  * PCB / segment limits
  * ================================================================ */
 #define MEMP_NUM_TCP_PCB 512
-#define MEMP_NUM_TCP_SEG (TCP_SND_QUEUELEN + 1) // Ensure sufficient segment buffers
+#ifndef MEMP_NUM_TCP_SEG
+#  ifdef TCP_SND_QUEUELEN
+#    define MEMP_NUM_TCP_SEG (TCP_SND_QUEUELEN + 1) // Ensure sufficient segment buffers
+#  else
+#    define MEMP_NUM_TCP_SEG 1024                   // Fallback: conservative default
+#  endif
+#endif
 
 /* ================================================================
  * pbuf pool
