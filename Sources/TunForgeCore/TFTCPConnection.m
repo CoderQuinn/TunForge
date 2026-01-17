@@ -232,10 +232,10 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     }
 
     if (length > UINT16_MAX) {
-        // Programming error, not runtime backpressure
-        [TFTunForgeLog error:@"writeBytes length exceeds UINT16_MAX; truncate"];
+        // Programming error - caller violated the contract
+        [TFTunForgeLog error:@"writeBytes length exceeds UINT16_MAX; reject"];
         assert(0 && "writeBytes length exceeds u16 limit");
-        length = UINT16_MAX; // defensive in release
+        return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteError};
     }
 
     if (!self.alive || !self.pcb || self.state != TFTCPConnectionActive || self.writeFINFlag) {
