@@ -31,7 +31,7 @@
 /* ================================================================
  * TCP send buffering
  * ================================================================ */
-#define TCP_SND_BUF      (8 * 1024 * 1024)  // 8MB send buffer for smooth downlink
+#define TCP_SND_BUF      (4 * TCP_WND)      // Send buffer ≈ 256KB (4x 64KB window) for good throughput without excessive per-connection memory
 #define TCP_SNDLOWAT     (4 * TCP_MSS)      // Set low water mark to 4 * MSS
 
 /* ================================================================
