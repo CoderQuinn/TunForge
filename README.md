@@ -75,7 +75,7 @@ UDP direct/bypass handling and application-layer proxy logic.
 ```swift
 .package(
     url: "https://github.com/CoderQuinn/TunForge",
-    from: "0.2.2"
+  from: "0.4.0"
 )
 ```
 
@@ -83,11 +83,11 @@ UDP direct/bypass handling and application-layer proxy logic.
 
 - Configure `TFGlobalScheduler` with `packetsQueue` and `connectionsQueue` **before** the first `TFIPStack.defaultStack()`.
 - Set `TFIPStack.delegate`; in `didAcceptNewTCPConnection`, call `handler(true)` exactly once.
-- On `packetsQueue`: call `connection.markActive()` then `connection.setRecvEnabled(true)` to enable receive.
+- On `packetsQueue`: call `connection.markActive()` then `connection.setReceiveEnabled(true)` to enable receive.
 - Receive:
   - Prefer `onReadableBytes` (batch slices); call `completion()` when done.
   - Or use `onReadable` for compatibility (allocates & copies).
-- Send: `writeBytes(_:length:)` (no extra wrapper) or `writeData(_:)`.
+- Send: `writeBytes(_:length:)` (no extra wrapper) or `writeData(_:)` (rejects > 65535 bytes).
 - Close: `shutdownWrite()` (half-close), `gracefulClose()`, or `abort()`.
 
 ## Requirements

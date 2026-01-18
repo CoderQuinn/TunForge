@@ -85,6 +85,12 @@ static TFIPStack *_stack;
 - (void)start {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
+    if (!self.stackRef || !self.stackRef.alive) {
+        self.stackRef = [[TFObjectRef alloc] initWithObject:self];
+    }
+
+    [TFTunForgeLog info:@"TFIPStack start"];
+
     dispatch_queue_t queue = TFGlobalScheduler.shared.packetsQueue;
     dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
     dispatch_source_set_timer(
@@ -103,12 +109,16 @@ static TFIPStack *_stack;
 
 - (void)stop {
     TF_ASSERT_ON_PACKETS_QUEUE();
+    [TFTunForgeLog info:@"TFIPStack stop"];
+    
     if (self.timer) {
         dispatch_source_cancel(self.timer);
         self.timer = nil;
     }
 
     [self.stackRef invalidate];
+    self.stackRef = nil;
+    self.ready = NO;
 
     if (self.listener) {
         tcp_arg(self.listener, NULL);
@@ -138,7 +148,6 @@ static TFIPStack *_stack;
         return;
     }
 
-    [TFTunForgeLog debug:@"TUN → lwIP packet received"];
     u16_t len = packet.length;
     if (len == 0 || len > UINT16_MAX) {
         return;
@@ -194,7 +203,6 @@ static TFIPStack *_stack;
     NSArray *packets = @[ data ];
     NSArray *families = @[ @(AF_INET) ];
 
-    [TFTunForgeLog debug:@"lwIP → TUN output packet"];
     self.outboundHandler(packets, families);
 }
 
@@ -305,8 +313,10 @@ static void tunforge_netif_setup(void *state) {
 #pragma mark - Accept bridge (lwIP -> ObjC)
 static err_t tunforge_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
     TF_ASSERT_ON_PACKETS_QUEUE();
+
     if (err != ERR_OK || !newpcb)
         return ERR_ABRT;
+
     tcp_backlog_delayed(newpcb);
 
     TFIPStack *stack = get_stack_from_arg(arg);
@@ -327,8 +337,6 @@ static err_t tunforge_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
         tcp_abort(newpcb);
         return ERR_ABRT;
     }
-
-    [TFTunForgeLog debug:@"TCP connection accepted"];
 
     weakify(stack);
     [TFGlobalScheduler.shared connectionsPerformAsync:^{

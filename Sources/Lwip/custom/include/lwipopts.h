@@ -26,7 +26,7 @@
  *   2 -> Deep protocol debugging
  */
 #ifndef TUNFORGE_LWIP_DEBUG_PROFILE
-#define TUNFORGE_LWIP_DEBUG_PROFILE 2
+#define TUNFORGE_LWIP_DEBUG_PROFILE 1
 #endif
 
 /* ================================================================
@@ -99,10 +99,6 @@
 #define LWIP_TCP_PCB_NUM_EXT_ARGS 1
 
 #define TUNFORGE_TCP_EXTARG_ID        0
-
-#define LWIP_TCP_KEEPALIVE       1
-#define TCP_KEEPCNT_DEFAULT      9
-#define TCP_KEEPIDLE_DEFAULT   7200
 
 /* ================================================================
  * Debug / Logging Configuration (Visibility ONLY)

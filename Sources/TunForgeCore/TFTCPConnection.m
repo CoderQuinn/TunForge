@@ -67,6 +67,7 @@ static inline BOOL tf_tcp_write_ready(struct tcp_pcb *pcb) {
 #endif
 }
 
+
 #pragma mark - LwIP raw declarations
 
 static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err);
@@ -146,11 +147,6 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
                                                      dstIP:remoteIP
                                                    dstPort:remotePort];
 
-        [TFTunForgeLog debug:[NSString stringWithFormat:@"TCP connection created %@:%u -> %@:%u",
-                                                        localIP,
-                                                        localPort,
-                                                        remoteIP,
-                                                        remotePort]];
         [self setupPcb];
     }
     return self;
@@ -165,9 +161,13 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         return;
 
     self.pcbRef = [[TFObjectRef alloc] initWithObject:self];
-    void *arg = [self.pcbRef retainedVoidPointer];
 
-    tcp_arg(pcb, arg);
+#if LWIP_TCP_PCB_NUM_EXT_ARGS
+    void *arg = [self.pcbRef retainedVoidPointer];
+    tcp_arg(pcb, (__bridge void *)self.pcbRef);
+#else
+    tcp_arg(pcb, (__bridge void *)self.pcbRef);
+#endif
     tcp_recv(pcb, tf_tcp_recv);
     tcp_sent(pcb, tf_tcp_sent);
     tcp_poll(pcb, tf_tcp_poll, 2);
@@ -197,7 +197,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     [self notifyActiveOnceLocked];
 }
 
-- (void)setRecvEnabled:(BOOL)enabled {
+- (void)setReceiveEnabled:(BOOL)enabled {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
     if (_recvEnabled == enabled)
@@ -206,7 +206,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 }
 
 //// Precise ACK to lwIP (recv window credit)
-- (void)ackRecvBytes:(NSUInteger)bytes {
+- (void)creditReceiveWindow:(NSUInteger)bytes {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
     if (bytes == 0)
@@ -217,7 +217,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 
     if (self.state != TFTCPConnectionActive)
         return;
-
+    
     // Safety: lwIP tcp_recved takes u16_t
     while (bytes > 0) {
         u16_t chunk = (u16_t)MIN(bytes, (NSUInteger)UINT16_MAX);
@@ -225,57 +225,51 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 
         bytes -= chunk;
     }
-
-    [TFTunForgeLog
-        info:[NSString stringWithFormat:@"[flow io] Precise ACK to lwIP=%ld", (long)bytes]];
 }
 
-- (NSUInteger)writeBytes:(const void *)bytes length:(NSUInteger)length {
+- (TFTCPWriteResult)writeBytes:(const void *)bytes length:(NSUInteger)length {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
-    if (!bytes || length == 0)
-        return 0;
-    if (!self.alive || !self.pcb)
-        return 0;
-    if (self.state != TFTCPConnectionActive)
-        return 0;
-    if (self.writeFINFlag)
-        return 0;
-
-    uint64_t remaining = length;
-    const uint8_t *cur = (const uint8_t *)bytes;
-    BOOL didWrite = NO;
-    while (remaining > 0) {
-        // lwIP tcp_write takes u16_t len.
-        u16_t chunk = (u16_t)MIN((NSUInteger)UINT16_MAX, remaining);
-        err_t e = tcp_write(self.pcb, cur, chunk, TCP_WRITE_FLAG_COPY);
-
-        if (e == ERR_OK) {
-            remaining -= chunk;
-            cur += chunk;
-            didWrite = YES;
-        } else if (e == ERR_MEM) {
-            // Backpressure fact: sndbuf / queue is full. Ask lwIP to send pending segments.
-            [self updateWritableLocked:NO];
-            break;
-        } else {
-            [self abortLocked:TFTCPConnectionTerminationReasonAbort];
-            return 0;
-        }
+    // Contract: caller MUST ensure length <= UINT16_MAX
+    if (!bytes || length == 0) {
+        return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteOK};
     }
 
-    if (didWrite && self.pcb) {
+    if (length > UINT16_MAX) {
+        // Programming error - caller violated the contract
+        [TFTunForgeLog error:@"writeBytes length exceeds UINT16_MAX; reject"];
+        assert(0 && "writeBytes length exceeds u16 limit");
+        return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteError};
+    }
+
+    if (!self.alive || !self.pcb || self.state != TFTCPConnectionActive || self.writeFINFlag) {
+        return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteClosed};
+    }
+
+    err_t err = tcp_write(self.pcb, bytes, (u16_t)length, TCP_WRITE_FLAG_COPY);
+
+    if (err == ERR_OK) {
         tcp_output(self.pcb);
+        [self updateWritableLocked:tf_tcp_write_ready(self.pcb)];
+        return (TFTCPWriteResult){.written = length, .status = TFTCPWriteOK};
     }
 
-    return (NSUInteger)(length - remaining);
+    if (err == ERR_MEM) {
+        [self updateWritableLocked:NO];
+        return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteWouldBlock};
+    }
+
+    // Other errors are fatal
+    [self abortLocked:TFTCPConnectionTerminationReasonAbort];
+    return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteError};
 }
 
-- (NSUInteger)writeData:(NSData *)data {
+- (TFTCPWriteResult)writeData:(NSData *)data {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
-    if (!data || data.length == 0) {
-        return 0;
+    if (data.length > UINT16_MAX) {
+        [TFTunForgeLog error:@"writeData length exceeds UINT16_MAX; reject send"];
+        return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteError};
     }
     return [self writeBytes:data.bytes length:data.length];
 }
@@ -397,8 +391,9 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         strongify(self);
         if (!self || !self.alive)
             return;
-        
-        onReadEOFCopy(self);
+
+        if (onReadEOFCopy)
+            onReadEOFCopy(self);
     }];
 }
 
@@ -432,7 +427,8 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
             return;
         }
 
-        onTerminatedCopy(self, reason);
+        if (onTerminatedCopy)
+            onTerminatedCopy(self, reason);
     }];
 }
 
@@ -449,9 +445,6 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         tcp_poll(pcb, NULL, 0);
         tcp_err(pcb, NULL);
 
-#if LWIP_TCP_PCB_NUM_EXT_ARGS
-        tcp_ext_arg_set(pcb, TUNFORGE_TCP_EXTARG_ID, NULL);
-#endif
     }
 
     if (self.pcbRef) {
@@ -476,7 +469,8 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         if (!self || !self.alive)
             return;
 
-        onBecameActiveCopy(self);
+        if (onBecameActiveCopy)
+            onBecameActiveCopy(self);
     }];
 }
 
@@ -497,7 +491,8 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         if (!self || !self.alive)
             return;
 
-        onWritableChangedCopy(self, newValue);
+        if (onWritableChangedCopy)
+            onWritableChangedCopy(self, newValue);
     }];
 }
 
@@ -575,6 +570,7 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
     if (err != ERR_OK) {
         if (p)
             pbuf_free(p);
+        [TFTunForgeLog warn:[NSString stringWithFormat:@"tcp_recv err=%d", (int)err]];
         [conn abortLocked:TFTCPConnectionTerminationReasonAbort];
         return ERR_OK;
     }
@@ -585,22 +581,23 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
         return ERR_OK;
     }
 
-    // Closed-loop uplink backpressure:
-    // If upper layer says "pause", DO NOT consume pbuf, let lwIP retry later.
-    if (!conn.recvEnabled) {
-        return ERR_MEM;
-    }
-
     const u16_t tot = p->tot_len;
     if (tot == 0) {
         pbuf_free(p);
         return ERR_OK;
     }
 
-    // Ack recv window
-    tcp_recved(pcb, tot);
+    // Backpressure: refuse delivery WITHOUT freeing pbuf.
+    // lwIP will retry later when recvEnabled becomes true.
+    if (!conn.recvEnabled) {
+        return ERR_MEM;
+    }
+
+    // IMPORTANT:
+    // Do NOT call tcp_recved here.
+    // Upper layer calls -creditReceiveWindow: after it has copied/enqueued bytes.
+
     TFTCPReadableBytesBatchHandler onReadableBytesCopy = conn.onReadableBytes;
-    
     if (onReadableBytesCopy) {
         NSUInteger sliceCnt = 0;
         for (struct pbuf *q = p; q; q = q->next) {
@@ -624,7 +621,7 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
         weakify(conn);
         [TFGlobalScheduler.shared connectionsPerformAsync:^{
             strongify(conn);
-            if (!conn || !conn.alive) {
+            if (!conn || !conn.alive || !onReadableBytesCopy) {
                 // must free even if handler gone
                 [TFGlobalScheduler.shared packetsPerformAsync:^{
                     free(slices);
@@ -659,7 +656,9 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
             strongify(conn);
             if (!conn || !conn.alive)
                 return;
-            onReadableCopy(conn, data);
+
+            if (onReadableCopy)
+                onReadableCopy(conn, data);
         }];
     }
 
@@ -684,7 +683,9 @@ static err_t tf_tcp_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
             strongify(conn);
             if (!conn || !conn.alive)
                 return;
-            onSentBytesCopy(conn, len);
+
+            if (onSentBytesCopy)
+                onSentBytesCopy(conn, len);
         }];
     }
 
@@ -723,6 +724,10 @@ static void tf_tcp_err(void *arg, err_t err) {
                                                   ? TFTCPConnectionTerminationReasonReset
                                                   : TFTCPConnectionTerminationReasonAbort;
 
+    const char *errStr = lwip_strerr(err);
+    [TFTunForgeLog warn:[NSString stringWithFormat:@"tcp_err err=%d (%s)",
+                                                      (int)err,
+                                                      errStr ? errStr : "?"]];
     [conn terminateLocked:reason];
 }
 
