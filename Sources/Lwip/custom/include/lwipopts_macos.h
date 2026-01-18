@@ -19,7 +19,7 @@
 #define MEM_LIBC_MALLOC  0
 #define MEMP_MEM_MALLOC  0
 #define MEM_ALIGNMENT    8
-#define MEM_SIZE         (64 * 1024 * 1024)  // 64MB is a reasonable cap for memory usage
+#define MEM_SIZE         (32 * 1024 * 1024)  // 32MB cap for memory usage
 
 /* ================================================================
  * TCP receive window
