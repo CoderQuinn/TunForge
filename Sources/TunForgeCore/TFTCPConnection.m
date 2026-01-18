@@ -161,9 +161,13 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         return;
 
     self.pcbRef = [[TFObjectRef alloc] initWithObject:self];
-    void *arg = [self.pcbRef retainedVoidPointer];
 
+#if LWIP_TCP_PCB_NUM_EXT_ARGS
+    void *arg = [self.pcbRef retainedVoidPointer];
     tcp_arg(pcb, (__bridge void *)self.pcbRef);
+#else
+    tcp_arg(pcb, (__bridge void *)self.pcbRef);
+#endif
     tcp_recv(pcb, tf_tcp_recv);
     tcp_sent(pcb, tf_tcp_sent);
     tcp_poll(pcb, tf_tcp_poll, 2);
@@ -232,10 +236,10 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     }
 
     if (length > UINT16_MAX) {
-        // Programming error, not runtime backpressure
-        [TFTunForgeLog error:@"writeBytes length exceeds UINT16_MAX; truncate"];
+        // Programming error - caller violated the contract
+        [TFTunForgeLog error:@"writeBytes length exceeds UINT16_MAX; reject"];
         assert(0 && "writeBytes length exceeds u16 limit");
-        length = UINT16_MAX; // defensive in release
+        return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteError};
     }
 
     if (!self.alive || !self.pcb || self.state != TFTCPConnectionActive || self.writeFINFlag) {
@@ -264,7 +268,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
     if (data.length > UINT16_MAX) {
-        [TFTunForgeLog warn:@"writeData length exceeds UINT16_MAX; reject send"];
+        [TFTunForgeLog error:@"writeData length exceeds UINT16_MAX; reject send"];
         return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteError};
     }
     return [self writeBytes:data.bytes length:data.length];
