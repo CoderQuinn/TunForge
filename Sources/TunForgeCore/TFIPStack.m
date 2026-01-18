@@ -203,12 +203,7 @@ static TFIPStack *_stack;
     NSArray *packets = @[ data ];
     NSArray *families = @[ @(AF_INET) ];
 
-    OutboundHandler handler = self.outboundHandler;
-    if (!handler) {
-        [TFTunForgeLog warn:@"Outbound handler is not set; drop output packet"];
-        return;
-    }
-    handler(packets, families);
+    self.outboundHandler(packets, families);
 }
 
 #pragma mark - setup once

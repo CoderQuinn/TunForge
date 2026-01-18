@@ -25,8 +25,8 @@
  * TCP receive window
  * ================================================================ */
 #define LWIP_WND_SCALE   1
-#define TCP_RCV_SCALE    4                  // 2^4 = 16; window is TCP_WND * 16 when scaling is enabled
-#define TCP_WND          65535              // Max u16 value; with scale=4 this is 65535 * 16 ≈ 1 MB window
+#define TCP_RCV_SCALE    4                  // 2^4 = 16 (16MB receive window)
+#define TCP_WND          65535               // Max u16 value, corresponds to 16MB with scaling
 
 /* ================================================================
  * TCP send buffering
@@ -38,13 +38,7 @@
  * PCB / segment limits
  * ================================================================ */
 #define MEMP_NUM_TCP_PCB 512
-#ifndef MEMP_NUM_TCP_SEG
-#  ifdef TCP_SND_QUEUELEN
-#    define MEMP_NUM_TCP_SEG (TCP_SND_QUEUELEN + 1) // Ensure sufficient segment buffers
-#  else
-#    define MEMP_NUM_TCP_SEG 1024                   // Fallback: conservative default
-#  endif
-#endif
+#define MEMP_NUM_TCP_SEG (TCP_SND_QUEUELEN + 1) // Ensure sufficient segment buffers
 
 /* ================================================================
  * pbuf pool

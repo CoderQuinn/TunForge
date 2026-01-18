@@ -242,15 +242,15 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteClosed};
     }
 
-    err_t e = tcp_write(self.pcb, bytes, (u16_t)length, TCP_WRITE_FLAG_COPY);
+    err_t err = tcp_write(self.pcb, bytes, (u16_t)length, TCP_WRITE_FLAG_COPY);
 
-    if (e == ERR_OK) {
+    if (err == ERR_OK) {
         tcp_output(self.pcb);
         [self updateWritableLocked:tf_tcp_write_ready(self.pcb)];
         return (TFTCPWriteResult){.written = length, .status = TFTCPWriteOK};
     }
 
-    if (e == ERR_MEM) {
+    if (err == ERR_MEM) {
         [self updateWritableLocked:NO];
         return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteWouldBlock};
     }
@@ -440,6 +440,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         tcp_sent(pcb, NULL);
         tcp_poll(pcb, NULL, 0);
         tcp_err(pcb, NULL);
+
     }
 
     if (self.pcbRef) {
