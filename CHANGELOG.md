@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.0] — 2026-01-21
+
+### Changed
+- API cleanup: clarify TCP receive ownership and activation semantics.
+- Replace public receive toggling with explicit activation receive gate.
+- TCP receive backpressure is now fully owned by `TFTCPConnection`; upper layers only credit consumed bytes.
+- Document TCP receive credit flow, completion requirements, and `writeBytes` length limit.
+- Refresh documentation and Swift convenience API references (`TFIPStack.shared`, `setOutboundHandler(_:)`).
+
 ## [0.4.0] — 2026-01-17
 
 ### Fixed

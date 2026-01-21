@@ -29,8 +29,7 @@ typedef void (^TFTCPAcceptHandler)(BOOL accept);
 /// IMPORTANT:
 /// - This is called asynchronously on the delegate queue.
 /// - The handler MUST be called exactly once.
-- (void)didAcceptNewTCPConnection:(TFTCPConnection *)connection
-                          handler:(TFTCPAcceptHandler)handler;
+- (void)didAcceptNewTCPConnection:(TFTCPConnection *)connection handler:(TFTCPAcceptHandler)handler;
 
 @end
 
