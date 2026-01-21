@@ -85,11 +85,11 @@ static TFIPStack *_stack;
 - (void)start {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
+    [TFTunForgeLog info:@"TFIPStack start"];
+
     if (!self.stackRef || !self.stackRef.alive) {
         self.stackRef = [[TFObjectRef alloc] initWithObject:self];
     }
-
-    [TFTunForgeLog info:@"TFIPStack start"];
 
     dispatch_queue_t queue = TFGlobalScheduler.shared.packetsQueue;
     dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
@@ -109,8 +109,9 @@ static TFIPStack *_stack;
 
 - (void)stop {
     TF_ASSERT_ON_PACKETS_QUEUE();
+
     [TFTunForgeLog info:@"TFIPStack stop"];
-    
+
     if (self.timer) {
         dispatch_source_cancel(self.timer);
         self.timer = nil;
@@ -194,15 +195,20 @@ static TFIPStack *_stack;
         return;
 
     u16_t len = pbuf->tot_len;
-    if (len < 20)
+    if (len < 20 || !self.outboundHandler) {
+        pbuf_free(pbuf);
         return;
+    }
 
     NSMutableData *data = [NSMutableData dataWithLength:len];
-    pbuf_copy_partial(pbuf, data.mutableBytes, len, 0);
-
+    u16_t ret = pbuf_copy_partial(pbuf, data.mutableBytes, len, 0);
+    if (ret != len) {
+        [TFTunForgeLog warn:[NSString stringWithFormat:@"pbuf_copy_partial copied %u/%u bytes", ret, len]];
+        pbuf_free(pbuf);
+        return;
+    }
     NSArray *packets = @[ data ];
     NSArray *families = @[ @(AF_INET) ];
-
     self.outboundHandler(packets, families);
 }
 

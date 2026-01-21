@@ -28,17 +28,20 @@
 #define TCP_RCV_SCALE    4                  // 2^4 = 16 (16MB receive window)
 #define TCP_WND          65535               // Max u16 value, corresponds to 16MB with scaling
 
+#define TCP_RCV_WND      (1024 * 1024)
+#define TCP_RCV_BUF      (1024 * 1024)
+
 /* ================================================================
  * TCP send buffering
  * ================================================================ */
-#define TCP_SND_BUF      (4 * TCP_WND)      // Send buffer ≈ 256KB (4x 64KB window) for good throughput without excessive per-connection memory
-#define TCP_SNDLOWAT     (4 * TCP_MSS)      // Set low water mark to 4 * MSS
+#define TCP_SND_BUF      (512 * 1024)
+#define TCP_SNDLOWAT     (2 * TCP_MSS)      // Set low water mark to 2 * MSS
 
 /* ================================================================
  * PCB / segment limits
  * ================================================================ */
 #define MEMP_NUM_TCP_PCB 512
-#define MEMP_NUM_TCP_SEG (TCP_SND_QUEUELEN + 1) // Ensure sufficient segment buffers
+#define MEMP_NUM_TCP_SEG    ((TCP_SND_BUF / TCP_MSS) * 2)
 
 /* ================================================================
  * pbuf pool

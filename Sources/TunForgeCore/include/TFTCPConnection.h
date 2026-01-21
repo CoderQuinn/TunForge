@@ -46,15 +46,19 @@ typedef struct {
     const void *bytes;
     NSUInteger length;
 } TFBytesSlice;
-typedef void (^TFTCPReadableBytesCompletion)(void);
 
-typedef void (^TFTCPBecameActiveHandler)(TFTCPConnection *conn);
-typedef void (^TFTCPReadableHandler)(TFTCPConnection *conn, NSData *data);
+typedef void (^TFTCPReceiveGateCompletion)(void);
+
+typedef void (^TFTCPActivatedHandler)(TFTCPConnection *conn,
+                                      TFTCPReceiveGateCompletion openReceiveGate);
+
 typedef void (^TFTCPReadableBytesBatchHandler)(TFTCPConnection *conn,
                                                const TFBytesSlice *slices,
                                                NSUInteger sliceCount,
                                                NSUInteger totalBytesLength,
-                                               TFTCPReadableBytesCompletion completion);
+                                               TFTCPReceiveGateCompletion completion);
+
+typedef void (^TFTCPReadableHandler)(TFTCPConnection *conn, NSData *data);
 typedef void (^TFTCPWritableChangedHandler)(TFTCPConnection *conn, BOOL writable);
 typedef void (^TFTCPSentBytesHandler)(TFTCPConnection *conn, NSUInteger sentBytes);
 typedef void (^TFTCPReadEOFHandler)(TFTCPConnection *conn);
@@ -67,16 +71,17 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 @property (nonatomic, assign, readonly) BOOL alive;
 @property (nonatomic, assign, readonly) BOOL writable;
 
-/// "Connection is ready for I/O" (fires once).
-/// Fired after markActive succeeds.
-@property (nullable, nonatomic, copy) TFTCPBecameActiveHandler onBecameActive;
+/// Fired exactly once after the TCP connection becomes active.
+/// The provided `openReceiveGate` MUST be called exactly once
+/// to allow inbound data delivery from lwIP.
+@property (nullable, nonatomic, copy) TFTCPActivatedHandler onActivated;
 
 /// Compatibility path. Will allocate & copy.
 /// Prefer onReadableBytes for zero-additional-copy at the bridge layer.
 @property (nullable, nonatomic, copy) TFTCPReadableHandler onReadable;
 
-/// Zero-copy receive path. Invoked with one or more contiguous byte slices that
-/// are owned by the connection's internal receive buffer.
+/// Zero-copy receive path.
+/// `completion` MUST be called exactly once to release internal buffers.
 @property (nullable, nonatomic, copy) TFTCPReadableBytesBatchHandler onReadableBytes;
 
 /// Edge changes of sendbuf writability (driven by ERR_MEM / tcp_sent / poll).
@@ -104,11 +109,8 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 
 - (TFTCPWriteResult)writeData:(NSData *)data;
 
-// Precise receive-window credit (ACK) to lwIP.
-// MUST call this after bytes are copied/enqueued in user-space.
-- (void)creditReceiveWindow:(NSUInteger)bytes;
-
-- (void)setReceiveEnabled:(BOOL)enabled;
+/// Credits lwIP receive window after upper layer has consumed inbound bytes.
+- (void)ackRemoteDeliveredBytes:(NSUInteger)bytes;
 
 /// Half-close (send FIN; closes the send direction).
 - (void)shutdownWrite;

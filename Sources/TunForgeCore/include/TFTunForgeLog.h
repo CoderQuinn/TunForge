@@ -12,11 +12,11 @@ NS_ASSUME_NONNULL_BEGIN
 @interface TFTunForgeLog : NSObject
 
 typedef NS_ENUM(NSUInteger, TFTunForgeLogLevel) {
-	TFTunForgeLogLevelDebug = 0,
-	TFTunForgeLogLevelInfo = 1,
-	TFTunForgeLogLevelWarn = 2,
-	TFTunForgeLogLevelError = 3,
-	TFTunForgeLogLevelOff = 4
+    TFTunForgeLogLevelDebug = 0,
+    TFTunForgeLogLevelInfo = 1,
+    TFTunForgeLogLevelWarn = 2,
+    TFTunForgeLogLevelError = 3,
+    TFTunForgeLogLevelOff = 4
 };
 
 /// Call once by upper layer (App / Extension)
