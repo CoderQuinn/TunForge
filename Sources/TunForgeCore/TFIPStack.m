@@ -204,11 +204,13 @@ static TFIPStack *_stack;
     u16_t ret = pbuf_copy_partial(pbuf, data.mutableBytes, len, 0);
     if (ret != len) {
         [TFTunForgeLog warn:@"pbuf_copy_partial copied %u/%u bytes", ret, len];
+        pbuf_free(pbuf);
         return;
     }
     NSArray *packets = @[ data ];
     NSArray *families = @[ @(AF_INET) ];
     self.outboundHandler(packets, families);
+    pbuf_free(pbuf);
 }
 
 #pragma mark - setup once
