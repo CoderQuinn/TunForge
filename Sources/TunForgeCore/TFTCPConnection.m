@@ -657,7 +657,7 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
 
     // IMPORTANT:
     // Do NOT call tcp_recved here.
-    // Upper layer calls -creditReceiveWindow: after it has copied/enqueued bytes.
+    // Upper layer calls -ackRemoteDeliveredBytes: after it has copied/enqueued bytes.
 
     TFTCPReadableBytesBatchHandler onReadableBytesCopy = conn.onReadableBytes;
     if (onReadableBytesCopy) {
@@ -702,7 +702,7 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
 
         return ERR_OK;
     } else if (conn.onReadable) {
-        // Copy bytes out first.
+        // Compatibility path: Copy bytes out first.
         void *buf = malloc(tot);
         if (!buf) {
             pbuf_free(p);
@@ -711,6 +711,10 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
 
         pbuf_copy_partial(p, buf, tot, 0);
         NSData *data = [[NSData alloc] initWithBytesNoCopy:buf length:tot freeWhenDone:YES];
+
+        // Automatically acknowledge bytes for compatibility path since
+        // onReadable handler has no completion callback.
+        [conn ackRemoteDeliveredBytes:tot];
 
         TFTCPReadableHandler onReadableCopy = conn.onReadable;
         weakify(conn);
