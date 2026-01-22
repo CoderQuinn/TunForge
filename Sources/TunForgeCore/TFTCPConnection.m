@@ -33,6 +33,7 @@
 #import "lwip/err.h"
 #import "lwip/pbuf.h"
 #import "lwip/tcp.h"
+#include "lwip/sys.h"
 
 #import <arpa/inet.h>
 #import <netinet/in.h>
@@ -44,8 +45,8 @@
  */
 static const NSUInteger kInflightFloorBytes = 64 * 1024;
 static const NSUInteger kInflightCeilingBytes = 256 * 1024;
-
 static NSString *const placeholderIPv4 = @"0.0.0.0";
+static const u32_t kTCPNewStateRejectTimeoutMs = 3000; // 3s
 
 #pragma mark - Helpers
 
@@ -103,6 +104,8 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 @property (nonatomic, assign) struct tcp_pcb *pcb;
 @property (nonatomic, strong) TFObjectRef *pcbRef;
 
+@property (nonatomic, assign) u32_t newStateStartMs;
+
 @property (nonatomic, assign) BOOL alive;
 @property (nonatomic, assign) BOOL writable;
 
@@ -137,6 +140,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     NSParameterAssert(pcb);
     if (self = [super init]) {
         _pcb = pcb;
+        _newStateStartMs = sys_now();
         _alive = YES;
         _writable = NO;
         _didNotifyActive = NO;
@@ -178,18 +182,15 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 
     self.pcbRef = [[TFObjectRef alloc] initWithObject:self];
 
-#if LWIP_TCP_PCB_NUM_EXT_ARGS
-    void *arg = [self.pcbRef retainedVoidPointer];
     tcp_arg(pcb, (__bridge void *)self.pcbRef);
-#else
-    tcp_arg(pcb, (__bridge void *)self.pcbRef);
-#endif
     tcp_recv(pcb, tf_tcp_recv);
     tcp_sent(pcb, tf_tcp_sent);
     tcp_poll(pcb, tf_tcp_poll, 2);
     tcp_err(pcb, tf_tcp_err);
 
 #if LWIP_TCP_PCB_NUM_EXT_ARGS
+    // tcp_ext_arg_set() establishes a pcb-lifetime ownership.arg will be destroyed exactly once by lwIP, regardless of early callback detachment.
+    void *arg = [self.pcbRef retainedVoidPointer];
     tcp_ext_arg_set_callbacks(pcb, TUNFORGE_TCP_EXTARG_ID, &tf_tcp_extarg_cbs);
     tcp_ext_arg_set(pcb, TUNFORGE_TCP_EXTARG_ID, arg);
 #endif
@@ -621,7 +622,7 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
     TF_ASSERT_ON_PACKETS_QUEUE();
 
     TFTCPConnection *conn = tf_conn_from_arg(arg);
-    if (!conn || !conn.alive) {
+    if (!conn || !conn.alive || conn.pcb != pcb) {
         if (p)
             pbuf_free(p);
         return ERR_OK;
@@ -736,7 +737,7 @@ static err_t tf_tcp_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
     TFTCPConnection *conn = tf_conn_from_arg(arg);
-    if (!conn || !conn.alive)
+    if (!conn || !conn.alive || conn.pcb != pcb)
         return ERR_OK;
 
     // Observer-only hint
@@ -762,14 +763,23 @@ static err_t tf_tcp_poll(void *arg, struct tcp_pcb *pcb) {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
     TFTCPConnection *conn = tf_conn_from_arg(arg);
-    if (!conn || !conn.alive)
+    if (!conn || !conn.alive || conn.pcb != pcb)
         return ERR_OK;
+    
+    if (conn.state == TFTCPConnectionNew) {
+        u32_t elapsed = sys_now() - conn.newStateStartMs;
+        if (elapsed >= kTCPNewStateRejectTimeoutMs) {
+            [TFTunForgeLog warn:@"TCP New-state reject timeout"];
+            [conn abortLocked:TFTCPConnectionTerminationReasonAbort];
+            return ERR_OK;
+        }
+    }
 
     // Optional observer-only hint
     [conn updateWritableLocked:tf_tcp_write_ready(pcb)];
 
     // Close retry (only if user requested graceful close and lwIP deferred it)
-    if (conn.pendingClose && conn.pcb == pcb) {
+    if (conn.pendingClose) {
         [conn tryGracefulCloseLocked];
     }
 
