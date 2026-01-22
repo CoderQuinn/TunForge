@@ -43,8 +43,11 @@
  They cap unacknowledged receive data to protect event-loop latency,
  memory usage, and zero-copy completion timing — independent of lwIP’s advertised window.
  */
+
+static const NSUInteger kSmallWndThreshold = 16 * 1024;
 static const NSUInteger kInflightFloorBytes = 64 * 1024;
 static const NSUInteger kInflightCeilingBytes = 256 * 1024;
+
 static NSString *const placeholderIPv4 = @"0.0.0.0";
 static const u32_t kTCPNewStateRejectTimeoutMs = 3000; // 3s
 
@@ -214,6 +217,16 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     [self notifyActiveOnceLocked];
 }
 
+- (void)setRecvEnabled:(BOOL)recvEnabled {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+    
+    if (_recvEnabled == recvEnabled) {
+        return;
+    }
+    
+    _recvEnabled = recvEnabled;
+}
+
 - (void)ackRemoteDeliveredBytes:(NSUInteger)bytes {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
@@ -253,11 +266,23 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         return kInflightFloorBytes;
     }
 
-    // 25% rule
-    NSUInteger derived = wnd >> 2;
+    NSUInteger derived = 0;
+    if (wnd <= kSmallWndThreshold) {
+        // TLS / small HTTP / handshake / small flow
+        derived = (NSUInteger)(0.75 * wnd);   // 75%
+    } else if (wnd <= kInflightFloorBytes) {
+        // HTTP / API / normal flow
+        derived = wnd >> 1;   // 50%
+    } else if (wnd <= kInflightCeilingBytes) {
+        // bulk / download
+        derived = wnd >> 2;   // 25%
+    } else {
+        derived = wnd >> 3;   // 12.5%
+    }
 
     // Clamp
-    derived = MAX(MIN(derived, kInflightCeilingBytes), kInflightFloorBytes);
+    NSUInteger floor = MIN(kInflightFloorBytes, wnd);
+    derived = MAX(MIN(derived, kInflightCeilingBytes), floor);
 
     return derived;
 }
@@ -481,12 +506,12 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 #pragma mark - Internal helpers
 
 - (BOOL)shouldAllowRecvWithIncomingBytes:(NSUInteger)bytes {
-    if (!self.recvEnabled)
-        return NO; // lifecycle gate
-    if (!self.alive)
+    if (!self.recvEnabled)  // lifecycle gate
         return NO;
-    if (self.state != TFTCPConnectionActive)
+    
+    if (!self.alive || self.state != TFTCPConnectionActive)
         return NO;
+
 
     NSUInteger maxInflight = [self currentMaxInflightAckBytes];
     return (self.inflightAckBytes + bytes) <= maxInflight;
@@ -526,11 +551,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         if (!self || !self.alive)
             return;
         if (onActivatedCopy) {
-            onActivatedCopy(self, ^{
-                [TFGlobalScheduler.shared packetsPerformAsync:^{
-                    self.recvEnabled = YES;
-                }];
-            });
+            onActivatedCopy(self);
         }
     }];
 }
