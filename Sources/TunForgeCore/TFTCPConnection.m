@@ -512,7 +512,6 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     if (!self.alive || self.state != TFTCPConnectionActive)
         return NO;
 
-
     NSUInteger maxInflight = [self currentMaxInflightAckBytes];
     return (self.inflightAckBytes + bytes) <= maxInflight;
 }
