@@ -4,7 +4,7 @@ https://github.com/CoderQuinn/TunForge/actions/workflows/ci.yml
 )
 ![License](https://img.shields.io/github/license/CoderQuinn/TunForge)
 ![Status](https://img.shields.io/badge/status-core_stable_(pre--1.0)-blue)
-![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20macOS-brightgreen)
+![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20macOS-blue)
 ![SPM](https://img.shields.io/badge/SPM-compatible-brightgreen)
 
 Lightweight Tun2Socks TCP core for iOS/macOS.

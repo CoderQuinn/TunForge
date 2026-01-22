@@ -49,8 +49,7 @@ typedef struct {
 
 typedef void (^TFTCPReceiveGateCompletion)(void);
 
-typedef void (^TFTCPActivatedHandler)(TFTCPConnection *conn,
-                                      TFTCPReceiveGateCompletion openReceiveGate);
+typedef void (^TFTCPActivatedHandler)(TFTCPConnection *conn);
 
 typedef void (^TFTCPReadableBytesBatchHandler)(TFTCPConnection *conn,
                                                const TFBytesSlice *slices,
@@ -101,6 +100,8 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 
 /// One-time transition: marks the connection as established/active.
 - (void)markActive;
+
+- (void)setRecvEnabled:(BOOL)recvEnabled;
 
 /// Zero-copy style write API.
 /// NOTE:
