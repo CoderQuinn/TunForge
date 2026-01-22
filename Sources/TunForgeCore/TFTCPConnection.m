@@ -281,8 +281,12 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     }
 
     // Clamp
-    NSUInteger floor = MIN(kInflightFloorBytes, wnd);
-    derived = MAX(MIN(derived, kInflightCeilingBytes), floor);
+    // For small windows (< kInflightFloorBytes), do not let the floor override
+    // the proportional `derived` value. For larger windows, enforce a minimum
+    // inflight floor of kInflightFloorBytes, capped by both the ceiling and wnd.
+    NSUInteger floor = (wnd >= kInflightFloorBytes) ? kInflightFloorBytes : 0;
+    NSUInteger cap = MIN(kInflightCeilingBytes, wnd);
+    derived = MIN(MAX(derived, floor), cap);
 
     return derived;
 }
