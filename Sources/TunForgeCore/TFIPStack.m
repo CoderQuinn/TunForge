@@ -187,26 +187,27 @@ static TFIPStack *_stack;
     }
 }
 
-/// Output(LwIP -> TUN)
+/// Output (lwIP -> TUN).
+/// Observes pbuf contents synchronously.
+/// Does NOT take ownership of pbuf; lwIP will free it.
 - (void)outputPacket:(struct pbuf *)pbuf {
     TF_ASSERT_ON_PACKETS_QUEUE();
-
     if (!pbuf)
         return;
-
+    
     u16_t len = pbuf->tot_len;
     if (len < 20 || !self.outboundHandler) {
-        pbuf_free(pbuf);
         return;
     }
 
     NSMutableData *data = [NSMutableData dataWithLength:len];
     u16_t ret = pbuf_copy_partial(pbuf, data.mutableBytes, len, 0);
     if (ret != len) {
-        [TFTunForgeLog warn:[NSString stringWithFormat:@"pbuf_copy_partial copied %u/%u bytes", ret, len]];
-        pbuf_free(pbuf);
+        [TFTunForgeLog
+            warn:[NSString stringWithFormat:@"pbuf_copy_partial copied %u/%u bytes", ret, len]];
         return;
     }
+
     NSArray *packets = @[ data ];
     NSArray *families = @[ @(AF_INET) ];
     self.outboundHandler(packets, families);
@@ -350,10 +351,8 @@ static err_t tunforge_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
         [delegate didAcceptNewTCPConnection:connection
                                     handler:^(BOOL accept) {
                                         [TFGlobalScheduler.shared packetsPerformAsync:^{
-                                            if (!stack || !newpcb)
-                                                return;
                                             if (!accept) {
-                                                tcp_abort(newpcb);
+                                                [connection abort];
                                             }
                                         }];
                                     }];

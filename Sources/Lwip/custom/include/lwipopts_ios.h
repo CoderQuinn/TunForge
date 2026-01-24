@@ -32,7 +32,7 @@
  * TCP send buffering
  * ================================================================ */
 #define TCP_SND_BUF    (16 * 1024)
-#define TCP_SNDLOWAT   (1 * TCP_MSS)
+#define TCP_SNDLOWAT   (2 * TCP_MSS)
 
 
 /* ================================================================
