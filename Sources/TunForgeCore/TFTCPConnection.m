@@ -206,7 +206,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 
 - (TFTCPWriteResult)writeBytes:(const void *)bytes length:(NSUInteger)length {
     TF_ASSERT_ON_PACKETS_QUEUE();
-    // Contract: caller MUST ensure length <= UINT16_MAX, lenth > 0
+    // Contract: caller MUST ensure length <= UINT16_MAX, length > 0
 
     if (!bytes || length == 0) {
         // Programming error - caller violated the contract
@@ -623,6 +623,7 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
         pbuf_copy_partial(p, buf, tot, 0);
         NSData *data = [[NSData alloc] initWithBytesNoCopy:buf length:tot freeWhenDone:YES];
         tcp_recved(pcb, tot);
+        pbuf_free(p);
 
         TFTCPReadableHandler onReadableCopy = conn.onReadable;
         weakify(conn);
