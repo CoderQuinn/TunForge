@@ -626,6 +626,7 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
         pbuf_copy_partial(p, buf, tot, 0);
         NSData *data = [[NSData alloc] initWithBytesNoCopy:buf length:tot freeWhenDone:YES];
         tcp_recved(pcb, tot);
+        pbuf_free(p);
 
         TFTCPReadableHandler onReadableCopy = conn.onReadable;
         weakify(conn);
