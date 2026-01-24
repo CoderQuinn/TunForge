@@ -206,7 +206,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 
 - (TFTCPWriteResult)writeBytes:(const void *)bytes length:(NSUInteger)length {
     TF_ASSERT_ON_PACKETS_QUEUE();
-    // Contract: caller MUST ensure length <= UINT16_MAX, lenth > 0
+    // Contract: caller MUST ensure length <= UINT16_MAX, length > 0
 
     if (!bytes || length == 0) {
         // Programming error - caller violated the contract
