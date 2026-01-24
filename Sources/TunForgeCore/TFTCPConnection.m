@@ -697,6 +697,15 @@ static err_t tf_tcp_poll(void *arg, struct tcp_pcb *pcb) {
         }
     }
 
+    if (conn.state == TFTCPConnectionNew) {
+        u32_t elapsed = sys_now() - conn.newStateStartMs;
+        if (elapsed >= kTCPNewStateRejectTimeoutMs) {
+            [TFTunForgeLog warn:@"TCP New-state reject timeout"];
+            [conn abortLocked:TFTCPConnectionTerminationReasonAbort];
+            return ERR_OK;
+        }
+    }
+
     // Optional observer-only hint
     [conn updateWritableLocked:tf_tcp_write_ready(pcb)];
 
