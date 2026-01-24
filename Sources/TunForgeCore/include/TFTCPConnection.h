@@ -6,14 +6,15 @@
 //
 
 /*
- *
- Fact                           Meaning
- Local send open / closed       Whether I can still send data
- Local receive open / closed    Whether I can still receive data
- Peer send open / closed        Whether the peer can still send data
- Peer receive open / closed     Whether the peer can still receive data
- *
+ Terminology (lwIP perspective):
+
+ Local  = lwIP / TunForge side
+ Peer   = App side (TUN client)
+
+ Note:
+ lwIP only handles communication with the App side (Peer), and does not interact with or manage the real server's TCP lifecycle, which is fully handled by upper layers (e.g. NetForge).
  */
+
 #import <Foundation/Foundation.h>
 
 struct tcp_pcb;
@@ -32,6 +33,7 @@ typedef NS_ENUM(NSUInteger, TFTCPConnectionTerminationReason) {
 
 typedef NS_ENUM(NSUInteger, TFTCPWriteStatus) {
     TFTCPWriteOK,
+    TFTCPWriteOverflow,
     TFTCPWriteWouldBlock,
     TFTCPWriteClosed,
     TFTCPWriteError
@@ -71,7 +73,7 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 @property (nonatomic, assign, readonly) BOOL writable;
 
 /// Fired exactly once after the TCP connection becomes active.
-/// The provided `openReceiveGate` MUST be called exactly once
+/// “Inbound delivery is gated via setInboundDeliveryEnabled, typically driven by Flow backpressure.
 /// to allow inbound data delivery from lwIP.
 @property (nullable, nonatomic, copy) TFTCPActivatedHandler onActivated;
 
@@ -83,7 +85,8 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 /// `completion` MUST be called exactly once to release internal buffers.
 @property (nullable, nonatomic, copy) TFTCPReadableBytesBatchHandler onReadableBytes;
 
-/// Edge changes of sendbuf writability (driven by ERR_MEM / tcp_sent / poll).
+/// lwIP send-buffer writability changes
+/// (i.e. ability to send data *to the Peer / App* via lwIP TCP).
 @property (nullable, nonatomic, copy) TFTCPWritableChangedHandler onWritableChanged;
 
 /// Peer ACKed sent data (tcp_sent); callback provides len (u16).
@@ -98,22 +101,24 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 
 - (instancetype)init NS_UNAVAILABLE;
 
-/// One-time transition: marks the connection as established/active.
+// Marks the connection as active, accepting the lwIP TCP connection
+// and allowing data delivery to upper layers.
 - (void)markActive;
 
-- (void)setRecvEnabled:(BOOL)recvEnabled;
+/// Controls whether inbound payloads from app are delivered to upper layers.
+/// Flow-control gate only; does not affect TCP state or send FIN.
+- (void)setInboundDeliveryEnabled:(BOOL)enabled;
 
 /// Zero-copy style write API.
 /// NOTE:
-/// Caller MUST ensure length <= UINT16_MAX (65535).
+// Contract: caller MUST ensure length <= UINT16_MAX, length > 0
 - (TFTCPWriteResult)writeBytes:(const void *)bytes length:(NSUInteger)length;
 
+// Writes data to TCP connection, similar to writeBytes, but takes NSData as input.
+// Ensures that data length is within bounds (<= UINT16_MAX).
 - (TFTCPWriteResult)writeData:(NSData *)data;
 
-/// Credits lwIP receive window after upper layer has consumed inbound bytes.
-- (void)ackRemoteDeliveredBytes:(NSUInteger)bytes;
-
-/// Half-close (send FIN; closes the send direction).
+/// Half-close (Shut down send side).
 - (void)shutdownWrite;
 
 // Full close

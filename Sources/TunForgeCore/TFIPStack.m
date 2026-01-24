@@ -203,10 +203,11 @@ static TFIPStack *_stack;
     NSMutableData *data = [NSMutableData dataWithLength:len];
     u16_t ret = pbuf_copy_partial(pbuf, data.mutableBytes, len, 0);
     if (ret != len) {
-        [TFTunForgeLog warn:[NSString stringWithFormat:@"pbuf_copy_partial copied %u/%u bytes", ret, len]];
+        [TFTunForgeLog
+            warn:[NSString stringWithFormat:@"pbuf_copy_partial copied %u/%u bytes", ret, len]];
         return;
     }
-    
+
     NSArray *packets = @[ data ];
     NSArray *families = @[ @(AF_INET) ];
     self.outboundHandler(packets, families);
@@ -351,7 +352,7 @@ static err_t tunforge_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
                                     handler:^(BOOL accept) {
                                         [TFGlobalScheduler.shared packetsPerformAsync:^{
                                             if (!accept) {
-                                              [connection abort];
+                                                [connection abort];
                                             }
                                         }];
                                     }];

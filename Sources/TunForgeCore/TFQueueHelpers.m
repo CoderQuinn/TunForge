@@ -6,6 +6,7 @@
 //
 
 #import "TFQueueHelpers.h"
+#import "TFTunForgeLog.h"
 
 void TFBindQueueSpecific(dispatch_queue_t queue, const void *key, void *value) {
     dispatch_queue_set_specific(queue, key, value, NULL);
@@ -18,7 +19,11 @@ BOOL TFIsOnQueue(const void *key) {
 void TFAssertOnQueue(const void *key, const char *function, const char *file, int line) {
 #if DEBUG
     if (!TFIsOnQueue(key)) {
-        NSLog(@"[TFQueueAssert] ❌ Wrong queue in %s (%s:%d)", function, file, line);
+        [TFTunForgeLog
+            error:[NSString stringWithFormat:@"[TFQueueAssert] ❌ Wrong queue in %s (%s:%d)",
+                                             function,
+                                             file,
+                                             line]];
         abort();
     }
 #endif
