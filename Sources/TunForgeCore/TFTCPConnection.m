@@ -595,7 +595,9 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
             if (!conn || !conn.alive || !onReadableBytesCopy) {
                 // must free even if handler gone
                 [TFGlobalScheduler.shared packetsPerformAsync:^{
-                    tcp_recved(pcb, tot);
+                    if (conn && conn.pcb == pcb) {
+                        tcp_recved(pcb, tot);
+                    }
                     free(slices);
                     pbuf_free(p);
                 }];
@@ -604,7 +606,9 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
 
             onReadableBytesCopy(conn, slices, sliceCnt, tot, ^{
                 [TFGlobalScheduler.shared packetsPerformAsync:^{
-                    tcp_recved(pcb, tot);
+                    if (conn && conn.pcb == pcb) {
+                        tcp_recved(pcb, tot);
+                    }
                     free(slices);
                     pbuf_free(p);
                 }];
