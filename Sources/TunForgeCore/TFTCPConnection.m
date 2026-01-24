@@ -568,9 +568,6 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
     if (!conn.recvEnabled) // lifecycle gate
         return ERR_MEM;
 
-    // IMPORTANT:
-    // Do NOT call tcp_recved here.
-    // Upper layer calls -ackInboundDeliveredBytes: after it has copied/enqueued bytes.
     TFTCPReadableBytesBatchHandler onReadableBytesCopy = conn.onReadableBytes;
     if (onReadableBytesCopy) {
         NSUInteger sliceCnt = 0;
