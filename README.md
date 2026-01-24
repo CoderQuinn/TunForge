@@ -7,7 +7,7 @@ https://github.com/CoderQuinn/TunForge/actions/workflows/ci.yml
 ![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20macOS-blue)
 ![SPM](https://img.shields.io/badge/SPM-compatible-brightgreen)
 
-Lightweight Tun2Socks TCP core for iOS/macOS.
+Lightweight Tun2Socks-style TCP transport core for iOS/macOS.
 
 ### Background
 
@@ -29,29 +29,49 @@ clear responsibility boundaries, and a production-oriented mindset.
 
 ## Highlights
 
-- Transparent TCP interception from TUN
-- Deterministic lifecycle across stack/connection
-- Minimal callback API
-- Zero-copy receive `onReadableBytes` and efficient send `writeBytes:length:`
+- Transparent TCP interception from TUN (lwIP-based)
+- Explicit and deterministic TCP lifecycle (no implicit closure)
+- Directional FIN / EOF semantics (no inferred shutdown)
+- Explicit backpressure via receive/write gating
+- Minimal, contract-driven callback API
+- Zero-copy receive via `onReadableBytes` and efficient send via `writeBytes:length:`
+
+## Design Principles (0.6.x)
+
+TunForge enforces a strict transport model:
+
+- **Liveness is explicit**  
+  `alive` determines whether an object may be accessed safely.  
+  When `alive == false`, all other state is semantically invalid.
+
+- **State controls permissions, not existence**  
+  Connection state determines which actions are allowed, never whether
+  the object is still alive.
+
+- **FIN / EOF are directional events**  
+  They never imply full connection closure.
+
+- **No implicit behavior**  
+  TCP closure, half-close, and backpressure transitions are always
+  explicit and initiated by upper layers.
+
+These constraints intentionally remove flexibility in favor of
+predictability and correctness.
 
 ## Scope & Roadmap
 
 TunForge is a low-level user-space networking data plane.
 
-Planned evolution focuses on:
+Focus areas:
 - TCP lifecycle robustness
 - IPv4 / IPv6 parity
-- ICMP support (e.g. ping, basic diagnostics)
-- Minimal IPv4 control-plane protocols when required
+- ICMP support (basic diagnostics)
 
-Explicitly out of scope (no short- or mid-term plan):
-- Full UDP proxying semantics
+Out of scope:
+- Full UDP proxy semantics
 - Fragmented UDP handling
 - Application-layer protocols (HTTP / SOCKS)
 - Traffic metrics or accounting
-
-Fragmented UDP is intentionally excluded due to its
-high complexity and low practical return in typical VPN scenarios.
 
 TunForge aims to be boring, predictable, and correct.
 
@@ -59,13 +79,8 @@ TunForge aims to be boring, predictable, and correct.
 
 TunForge does not implement full UDP proxying.
 
-- Non-fragmented UDP packets are handled via direct/bypass paths
-  for maximum performance and simplicity.
-- Fragmented UDP packets are intentionally not supported.
-
-In practice, fragmented UDP traffic is rare in modern VPN scenarios,
-while its reassembly complexity and memory cost are high.
-The cost–benefit tradeoff does not justify implementation.
+- Non-fragmented UDP packets follow direct/bypass paths.
+- Fragmented UDP packets are not supported.
 
 Higher-level components (such as NetForge) are responsible for
 UDP direct/bypass handling and application-layer proxy logic.
@@ -75,7 +90,7 @@ UDP direct/bypass handling and application-layer proxy logic.
 ```swift
 .package(
     url: "https://github.com/CoderQuinn/TunForge",
-  from: "0.5.0"
+  from: "0.6.0"
 )
 ```
 
@@ -84,11 +99,10 @@ UDP direct/bypass handling and application-layer proxy logic.
 - Swift convenience: use `TFIPStack.shared` as the shared singleton (alias of `default()`), and `setOutboundHandler(_:)` for Swift-native packet arrays.
 - Configure `TFGlobalScheduler` with `packetsQueue` and `connectionsQueue` **before** the first `TFIPStack.defaultStack()`.
 - Set `TFIPStack.delegate`; in `didAcceptNewTCPConnection`, call `handler(true)` exactly once.
-- On `packetsQueue`: call `connection.markActive()`.
-- In `onActivated`, call the provided receive-gate completion exactly once to allow inbound data delivery.
+- Call `connection.markActive()` on `packetsQueue` to accept the TCP connection.
+- Inbound delivery is gated explicitly; receive callbacks are only invoked when enabled.
 - Receive:
     - Prefer `onReadableBytes` (batch slices); call `completion()` exactly once to release internal buffers.
-    - After processing received bytes, call `ackRemoteDeliveredBytes(_:)` to return TCP receive credit (required for forward progress).
 - Send: `writeBytes(_:length:)` (no extra wrapper, length <= 65535) or `writeData(_:)` (rejects > 65535 bytes).
 - Close: `shutdownWrite()` (half-close), `gracefulClose()`, or `abort()`.
 

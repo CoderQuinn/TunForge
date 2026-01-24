@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.6.0] — 2026-01-24
+
+### Breaking Changes
+
+- Removed legacy APIs that allowed implicit TCP behavior.
+- Removed FIN / EOF–driven implicit closure semantics.
+- Removed inflight byte–based flow control; backpressure is now gate-driven.
+- Tightened the boundary between lwIP transport and Flow logic.
+
+### Semantics
+
+- TCP lifecycle semantics are now explicit and fixed.
+- `alive` is the sole indicator of object validity.
+- FIN / EOF are strictly directional events.
+- Writability and sent-byte callbacks are observer-only.
+
+### Stability
+
+- Guaranteed exactly-once termination callbacks.
+- Deterministic teardown ordering.
+- Hardened PCB lifetime handling (`tcp_ext_arg`).
+
+### Documentation
+
+- Updated README to reflect locked transport semantics.
+- Updated SPM install snippet to `from: "0.6.0"`.
+
+> 0.6.0 marks the stabilization of TCP transport semantics.  
+> Future releases focus on performance, diagnostics, and composition.
+
 ## [0.5.0] — 2026-01-21
 
 ### Changed
