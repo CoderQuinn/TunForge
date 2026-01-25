@@ -9,9 +9,9 @@ APIs and timelines may evolve.
 
 Goal: finalize the execution model while keeping lwIP strictly serialized.
 
-- packetsQueue remains strictly serial
+- `packetsQueue` remains strictly serialized
 - connection callbacks become parallelized
-- TFTCPConnection internal state remains packetsQueue-owned
+- `TFTCPConnection` internal state remains `packetsQueue`-owned
 - callback re-entrancy and lifecycle contracts documented
 - callback hop paths minimized for performance
 
@@ -25,7 +25,7 @@ Out of scope:
 
 Goal: make zero-copy receive stable under sustained high load.
 
-- TFBytesSlice allocation optimization
+- `TFBytesSlice` allocation optimization
 - slice lifecycle enforcement and debug checks
 - inflight ACK accounting validation
 - zero-copy vs copied-path observability
