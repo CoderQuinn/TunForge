@@ -135,10 +135,11 @@ TunForge is a foundation layer, not a feature layer.
 - Configure `TFGlobalScheduler` before accessing `TFIPStack`.
 - All lwIP interaction runs on `packetsQueue`.
 - User callbacks are dispatched on `connectionsQueue`.
-- In `didAcceptNewTCPConnection`, call `handler(true)` exactly once.
-- Call `markActive()` explicitly to accept the connection.
-- Use `setInboundDeliveryEnabled(_:)` to control receive flow.
-- After consuming inbound data, call `acknowledgeDeliveredBytes(_:)`.
+- In `didAcceptNewTCPConnection` (on `connectionsQueue`), call `handler(true)` exactly once.
+- The following APIs must be invoked on `packetsQueue` (or via `TFGlobalScheduler.shared.packetsPerformAsync` / `packetsPerformSync`):
+  - `markActive()` — explicitly accept the connection.
+  - `setInboundDeliveryEnabled(_:)` — control receive flow.
+  - `acknowledgeDeliveredBytes(_:)` — acknowledge consumed inbound data.
 - Close explicitly via `shutdownWrite()`, `gracefulClose()`, or `abort()`.
 
 TunForge assumes the caller is disciplined.
