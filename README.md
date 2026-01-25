@@ -60,8 +60,8 @@ TunForge is not a proxy, protocol router, or VPN product by itself.
 - Zero-copy receive path (`onReadableBytes`)
 - Efficient send path (`writeBytes:length:`)
 - Clear separation between:
-  - lwIP execution (packets queue)
-  - user callbacks (connections queue)
+  - lwIP execution (`packetsQueue`)
+  - user callbacks (`connectionsQueue`)
 
 ## Explicit Non-Goals
 
