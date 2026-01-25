@@ -192,6 +192,7 @@ static TFIPStack *_stack;
 /// Takes ownership of pbuf; must free it on all paths.
 - (void)outputPacket:(struct pbuf *)pbuf {
     TF_ASSERT_ON_PACKETS_QUEUE();
+    // Null pbuf is invalid input; no cleanup needed
     if (!pbuf)
         return;
     
