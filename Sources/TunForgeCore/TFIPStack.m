@@ -189,7 +189,7 @@ static TFIPStack *_stack;
 
 /// Output (lwIP -> TUN).
 /// Observes pbuf contents synchronously.
-/// Does NOT take ownership of pbuf; lwIP will free it.
+/// Takes ownership of pbuf; must free it on all paths.
 - (void)outputPacket:(struct pbuf *)pbuf {
     TF_ASSERT_ON_PACKETS_QUEUE();
     if (!pbuf)
@@ -197,6 +197,7 @@ static TFIPStack *_stack;
     
     u16_t len = pbuf->tot_len;
     if (len < 20 || !self.outboundHandler) {
+        pbuf_free(pbuf);
         return;
     }
 
@@ -205,12 +206,14 @@ static TFIPStack *_stack;
     if (ret != len) {
         [TFTunForgeLog
             warn:[NSString stringWithFormat:@"pbuf_copy_partial copied %u/%u bytes", ret, len]];
+        pbuf_free(pbuf);
         return;
     }
 
     NSArray *packets = @[ data ];
     NSArray *families = @[ @(AF_INET) ];
     self.outboundHandler(packets, families);
+    pbuf_free(pbuf);
 }
 
 #pragma mark - setup once
