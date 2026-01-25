@@ -7,105 +7,186 @@ https://github.com/CoderQuinn/TunForge/actions/workflows/ci.yml
 ![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20macOS-blue)
 ![SPM](https://img.shields.io/badge/SPM-compatible-brightgreen)
 
-Lightweight Tun2Socks TCP core for iOS/macOS.
+Lightweight tun2socks-style TCP data plane for iOS / macOS.
 
-### Background
+TunForge is a low-level, user-space TCP interception core built on lwIP,
+designed for deterministic lifecycle control and predictable backpressure
+in TUN-based VPN / proxy environments.
 
-TunForge is the fulfillment of an earlier commitment made in
-[YYTun2Socks](https://github.com/CoderQuinn/YYTun2Socks).
+## Background
 
-The original YYTun2Socks project was an early, immature exploration
-of tun2socks-style TCP interception on iOS.
-At the time, the implementation suffered from unclear boundaries
-and limited lifecycle control.
+TunForge is the fulfillment of an earlier commitment made in [YYTun2Socks](https://github.com/CoderQuinn/YYTun2Socks).
+The original YYTun2Socks project was an early, immature exploration of tun2socks-style TCP interception on iOS. At the time, the implementation suffered from unclear boundaries and limited lifecycle control.
+TunForge revisits the same problem space with a clean-slate design, clear responsibility boundaries, and a production-oriented mindset.
 
-TunForge revisits the same problem space with a clean-slate design,
-clear responsibility boundaries, and a production-oriented mindset.
+## What TunForge Is
 
-## Overview
+TunForge is intentionally boring.
 
-- Tun2Socks‑style TCP interception built on lwIP for TUN-based VPN/proxy.
-- Exposes connections as manageable socket-like objects.
+It focuses exclusively on:
 
-## Highlights
+- TCP interception from TUN
+- Correct TCP lifecycle semantics
+- Explicit flow control and backpressure
+- Minimal, verifiable callback surface
 
-- Transparent TCP interception from TUN
-- Deterministic lifecycle across stack/connection
-- Minimal callback API
-- Zero-copy receive `onReadableBytes` and efficient send `writeBytes:length:`
+TunForge is not a proxy, protocol router, or VPN product by itself.
 
-## Scope & Roadmap
+## Design Principles
 
-TunForge is a low-level user-space networking data plane.
+- **TCP-first, TCP-only (by design)**
+  UDP is not part of the core data plane.
 
-Planned evolution focuses on:
-- TCP lifecycle robustness
-- IPv4 / IPv6 parity
-- ICMP support (e.g. ping, basic diagnostics)
-- Minimal IPv4 control-plane protocols when required
+- **Deterministic lifecycle**
+  No inferred closure, no hidden state transitions.
 
-Explicitly out of scope (no short- or mid-term plan):
-- Full UDP proxying semantics
-- Fragmented UDP handling
-- Application-layer protocols (HTTP / SOCKS)
-- Traffic metrics or accounting
+- **Explicit flow control**
+  Upper layers must explicitly:
+  - enable inbound delivery
+  - acknowledge delivered bytes
+  - manage half-close / full-close
 
-Fragmented UDP is intentionally excluded due to its
-high complexity and low practical return in typical VPN scenarios.
+- **Minimal API surface**
+  Fewer callbacks, clearer contracts.
 
-TunForge aims to be boring, predictable, and correct.
+- **Zero-copy where it matters**
+  `onReadableBytes` exposes lwIP buffers directly with explicit release.
+
+## Core Capabilities
+
+- Transparent TCP interception from TUN (lwIP raw API)
+- Per-connection lifecycle state machine
+- Backpressure-aware receive gating
+- Zero-copy receive path (`onReadableBytes`)
+- Efficient send path (`writeBytes:length:`)
+- Clear separation between:
+  - lwIP execution (`packetsQueue`)
+  - user callbacks (`connectionsQueue`)
+
+## Explicit Non-Goals
+
+TunForge does not aim to provide:
+
+- Full UDP proxy semantics
+- Fragmented UDP reassembly
+- Application-layer protocols (HTTP / SOCKS / TLS)
+- Traffic accounting, statistics, or policy engines
+
+These belong to higher-level layers.
 
 ## UDP Handling Policy
 
-TunForge does not implement full UDP proxying.
+TunForge does not implement general UDP proxying.
 
-- Non-fragmented UDP packets are handled via direct/bypass paths
-  for maximum performance and simplicity.
-- Fragmented UDP packets are intentionally not supported.
+- Non-fragmented UDP packets may pass through direct / bypass paths.
+- Fragmented UDP packets are intentionally unsupported.
 
-In practice, fragmented UDP traffic is rare in modern VPN scenarios,
-while its reassembly complexity and memory cost are high.
-The cost–benefit tradeoff does not justify implementation.
+Fragmented UDP adds significant complexity and memory cost,
+while providing little practical value in modern VPN scenarios.
 
-Higher-level components (such as NetForge) are responsible for
-UDP direct/bypass handling and application-layer proxy logic.
+Higher-level components (e.g. NetForge) are responsible for
+UDP routing, proxying, and protocol-specific behavior.
 
-## Installation (SPM)
+## Architecture Positioning
+
+```
+┌──────────────────────────────┐
+│           NetForge           │
+│  Routing / Policy / Proxy    │
+│  SOCKS5 / HTTP / HTTPS       │
+│  UDP direct / bypass         │
+└──────────────▲───────────────┘
+               │
+┌──────────────┴───────────────┐
+│           TunForge           │
+│     TCP Data Plane Core      │
+│  - TCP lifecycle             │
+│  - Backpressure              │
+│  - Zero-copy receive         │
+│  - Flow abstraction          │
+└──────────────▲───────────────┘
+               │
+┌──────────────┴───────────────┐
+│             lwIP             │
+│   User-space TCP/IP stack    │
+│   (IPv4 / IPv6 / ICMP)       │
+└──────────────▲───────────────┘
+               │
+┌──────────────┴───────────────┐
+│              TUN             │
+│   OS Virtual Network Device  │
+└──────────────────────────────┘
+
+```
+
+TunForge is a foundation layer, not a feature layer.
+
+## Installation (Swift Package Manager)
 
 ```swift
 .package(
     url: "https://github.com/CoderQuinn/TunForge",
-  from: "0.5.1"
+    from: "0.5.1"
 )
 ```
 
-## Quick Use
+## Quick Usage Notes
 
-- Swift convenience: use `TFIPStack.shared` as the shared singleton (alias of `default()`), and `setOutboundHandler(_:)` for Swift-native packet arrays.
-- Configure `TFGlobalScheduler` with `packetsQueue` and `connectionsQueue` **before** the first `TFIPStack.shared`/`TFIPStack.default()` access.
-- Set `TFIPStack.delegate`; in `didAcceptNewTCPConnection`, call `handler(true)` exactly once.
-- On `packetsQueue`: call `connection.markActive()`.
-- In `onActivated`, call `setInboundDeliveryEnabled(true)` when ready to allow inbound data delivery (and toggle as needed for flow control).
-- Receive:
-    - Prefer `onReadableBytes` (batch slices); call `completion()` exactly once to release internal buffers.
-  - After processing received bytes, call `acknowledgeDeliveredBytes(_:)` to return TCP receive credit (required for forward progress).
-- Send: `writeBytes(_:length:)` (no extra wrapper, length <= 65535) or `writeData(_:)` (rejects > 65535 bytes).
-- Close: `shutdownWrite()` (half-close), `gracefulClose()`, or `abort()`.
+- Configure `TFGlobalScheduler` before accessing `TFIPStack`.
+- All lwIP interaction runs on `packetsQueue`.
+- User callbacks are dispatched on `connectionsQueue`.
+- In `didAcceptNewTCPConnection` (on `connectionsQueue`), call `handler(true)` exactly once.
+- The following APIs must be invoked on `packetsQueue` (or via `TFGlobalScheduler.shared.packetsPerformAsync` / `packetsPerformSync`):
+  - `markActive()` — explicitly accept the connection.
+  - `setInboundDeliveryEnabled(_:)` — control receive flow.
+  - `acknowledgeDeliveredBytes(_:)` — acknowledge consumed inbound data.
+- Close explicitly via `shutdownWrite()`, `gracefulClose()`, or `abort()`.
 
-## Requirements
+TunForge assumes the caller is disciplined.
 
-- iOS 13.0+ / macOS 11.0+
-- Swift 5.9+
-- Network Extension entitlement
+## Roadmap (Pre-1.0)
+
+### Current Focus (0.6.x)
+
+- Harden TCP lifecycle invariants
+- Strengthen backpressure correctness
+- Internal cleanup and API tightening
+- Preparation for parallel callback dispatch
+- Improved documentation of contracts and invariants
+
+### Planned (Pre-1.0)
+
+- IPv4 / IPv6 parity
+- ICMP basics (e.g. ping, diagnostics)
+- Further lifecycle edge-case hardening
+
+### Explicitly Deferred
+
+- Full UDP proxy semantics
+- Application-layer protocols
+- Metrics, accounting, or analytics
+
+## Status
+
+TunForge is pre-1.0 but core-stable.
+
+APIs may still evolve, but the architectural direction is fixed:
+a small, predictable TCP data plane.
 
 ## Acknowledgements
 
-- lwIP — Lightweight TCP/IP stack: https://www.nongnu.org/lwip/
-- tun2socks (zhuhaow): https://github.com/zhuhaow/tun2socks
+- lwIP — Lightweight TCP/IP stack
+  https://www.nongnu.org/lwip/
+
+- tun2socks (zhuhaow)
+  https://github.com/zhuhaow/tun2socks
 
 ## License
 
 Apache License 2.0
 
-> TunForge is part of the QuantumLink VPN prototype.  
-> Higher-level protocol routing (NetForge) is under active refinement.
+> TunForge is part of the QuantumLink VPN prototype.
+> Higher-level routing and protocol logic live in NetForge and are
+> intentionally kept out of this repository.
+
+See [ROADMAP.md](./ROADMAP.md) for planned internal milestones.
