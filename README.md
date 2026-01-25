@@ -16,7 +16,10 @@ in TUN-based VPN / proxy environments.
 ## Background
 
 TunForge is the fulfillment of an earlier commitment made in [YYTun2Socks](https://github.com/CoderQuinn/YYTun2Socks).
-The original YYTun2Socks project was an early, immature exploration of tun2socks-style TCP interception on iOS. At the time, the implementation suffered from unclear boundaries and limited lifecycle control.
+
+The original YYTun2Socks project was an early, immature exploration of tun2socks-style TCP interception on iOS.
+At the time, the implementation suffered from unclear boundaries and limited lifecycle control.
+
 TunForge revisits the same problem space with a clean-slate design, clear responsibility boundaries, and a production-oriented mindset.
 
 ## What TunForge Is
