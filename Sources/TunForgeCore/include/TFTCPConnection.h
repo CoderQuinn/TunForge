@@ -73,8 +73,7 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 @property (nonatomic, assign, readonly) BOOL writable;
 
 /// Fired exactly once after the TCP connection becomes active.
-/// “Inbound delivery is gated via setInboundDeliveryEnabled, typically driven by Flow backpressure.
-/// to allow inbound data delivery from lwIP.
+/// Inbound delivery is controlled via `setInboundDeliveryEnabled:`, typically driven by Flow backpressure, rather than using the previous `openReceiveGate` completion pattern.
 @property (nullable, nonatomic, copy) TFTCPActivatedHandler onActivated;
 
 /// Compatibility path. Will allocate & copy.
