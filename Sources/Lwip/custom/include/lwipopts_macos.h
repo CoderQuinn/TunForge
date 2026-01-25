@@ -30,6 +30,7 @@
 
 #define TCP_RCV_WND      (1024 * 1024)
 #define TCP_RCV_BUF      (1024 * 1024)
+#define TCP_RCVLOWAT     (2 * TCP_MSS)      // Set low water mark to 2 * MSS
 
 /* ================================================================
  * TCP send buffering
@@ -52,6 +53,10 @@
 /* ================================================================
  * TCP behavior
  * ================================================================ */
+#define TCP_KEEPIDLE    7200  
+#define TCP_KEEPINTVL   75
+#define TCP_KEEPCNT     9
+
 #define TCP_MAXRTX       8                   // Maximum retransmits before considering a failure
 #define TCP_SYNMAXRTX    4                   // Maximum SYN retransmits
 #define TCP_TTL          64                  // Default Time-To-Live for TCP packets
