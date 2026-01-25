@@ -4,7 +4,7 @@ https://github.com/CoderQuinn/TunForge/actions/workflows/ci.yml
 )
 ![License](https://img.shields.io/github/license/CoderQuinn/TunForge)
 ![Status](https://img.shields.io/badge/status-core_stable_(pre--1.0)-blue)
-![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20macOS-brightgreen)
+![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20macOS-blue)
 ![SPM](https://img.shields.io/badge/SPM-compatible-brightgreen)
 
 Lightweight Tun2Socks TCP core for iOS/macOS.
@@ -75,20 +75,20 @@ UDP direct/bypass handling and application-layer proxy logic.
 ```swift
 .package(
     url: "https://github.com/CoderQuinn/TunForge",
-  from: "0.5.0"
+  from: "0.5.1"
 )
 ```
 
 ## Quick Use
 
 - Swift convenience: use `TFIPStack.shared` as the shared singleton (alias of `default()`), and `setOutboundHandler(_:)` for Swift-native packet arrays.
-- Configure `TFGlobalScheduler` with `packetsQueue` and `connectionsQueue` **before** the first `TFIPStack.defaultStack()`.
+- Configure `TFGlobalScheduler` with `packetsQueue` and `connectionsQueue` **before** the first `TFIPStack.shared`/`TFIPStack.default()` access.
 - Set `TFIPStack.delegate`; in `didAcceptNewTCPConnection`, call `handler(true)` exactly once.
 - On `packetsQueue`: call `connection.markActive()`.
-- In `onActivated`, call the provided receive-gate completion exactly once to allow inbound data delivery.
+- In `onActivated`, call `setInboundDeliveryEnabled(true)` when ready to allow inbound data delivery (and toggle as needed for flow control).
 - Receive:
     - Prefer `onReadableBytes` (batch slices); call `completion()` exactly once to release internal buffers.
-    - After processing received bytes, call `ackRemoteDeliveredBytes(_:)` to return TCP receive credit (required for forward progress).
+  - After processing received bytes, call `acknowledgeDeliveredBytes(_:)` to return TCP receive credit (required for forward progress).
 - Send: `writeBytes(_:length:)` (no extra wrapper, length <= 65535) or `writeData(_:)` (rejects > 65535 bytes).
 - Close: `shutdownWrite()` (half-close), `gracefulClose()`, or `abort()`.
 

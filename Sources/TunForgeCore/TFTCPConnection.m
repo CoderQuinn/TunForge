@@ -33,19 +33,13 @@
 #import "lwip/err.h"
 #import "lwip/pbuf.h"
 #import "lwip/tcp.h"
+#include "lwip/sys.h"
 
 #import <arpa/inet.h>
 #import <netinet/in.h>
 
-/*
- User-space safety bounds, not TCP window sizes.
- They cap unacknowledged receive data to protect event-loop latency,
- memory usage, and zero-copy completion timing — independent of lwIP’s advertised window.
- */
-static const NSUInteger kInflightFloorBytes = 64 * 1024;
-static const NSUInteger kInflightCeilingBytes = 256 * 1024;
-
 static NSString *const placeholderIPv4 = @"0.0.0.0";
+static const u32_t kTCPNewStateRejectTimeoutMs = 10000; // 10s
 
 #pragma mark - Helpers
 
@@ -56,25 +50,32 @@ static inline NSString *tf_ipv4_to_string(uint32 addr_network_order) {
     return cStr ? [NSString stringWithUTF8String:cStr] : placeholderIPv4;
 }
 
-static inline u16_t tf_tcp_min_write_ready_bytes(const struct tcp_pcb *pcb) {
-    // Pure hint. Keep it small to avoid "stuck writable==NO" under small sndbuf.
-    // Prefer ">= 2 * mss" rather than 4*mss (4*mss can be too strict for small pipes).
-    if (!pcb)
-        return 0;
-    u16_t mss = pcb->mss;
-    if (mss == 0)
-        mss = TCP_MSS; // fallback
-    return (u16_t)(2 * mss);
-}
-
 static inline BOOL tf_tcp_write_ready(struct tcp_pcb *pcb) {
     if (!pcb)
         return NO;
+
+    uint32_t lowWaterMark = 0;
 #ifdef TCP_SNDLOWAT
-    return tcp_sndbuf(pcb) >= TCP_SNDLOWAT;
+    lowWaterMark = TCP_SNDLOWAT;
 #else
-    return tcp_sndbuf(pcb) >= tf_tcp_min_write_ready_bytes(pcb);
+    u16_t mss = pcb->mss ?: TCP_MSS;
+    lowWaterMark = 2 * mss;
 #endif
+    return tcp_sndbuf(pcb) >= lowWaterMark;
+}
+
+static inline BOOL tf_tcp_read_ready(struct tcp_pcb *pcb) {
+    if (!pcb)
+        return NO;
+
+    uint32_t lowWaterMark = 0;
+#ifdef TCP_RCVLOWAT
+    lowWaterMark = TCP_RCVLOWAT;
+#else
+    u16_t mss = pcb->mss ?: TCP_MSS;
+    lowWaterMark = 2 * mss;
+#endif
+    return pcb->rcv_wnd >= lowWaterMark;
 }
 
 #pragma mark - LwIP raw declarations
@@ -103,11 +104,13 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 @property (nonatomic, assign) struct tcp_pcb *pcb;
 @property (nonatomic, strong) TFObjectRef *pcbRef;
 
+@property (nonatomic, assign) u32_t newStateStartMs;
+
 @property (nonatomic, assign) BOOL alive;
 @property (nonatomic, assign) BOOL writable;
 
-@property (nonatomic, assign) BOOL readEOFFlag;  // peer FIN observed (p == NULL)
-@property (nonatomic, assign) BOOL writeFINFlag; // local shutdownWrite called
+@property (nonatomic, assign) BOOL readEOF;  // FIN received from app (TUN client) side (p == NULL)
+@property (nonatomic, assign) BOOL writeFIN; // local shutdown send called
 
 @property (nonatomic, assign) TFTCPConnectionState state;
 @property (nonatomic, assign) TFTCPConnectionTerminationReason terminationReason;
@@ -118,11 +121,10 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 @property (nonatomic, assign) BOOL pendingClose;
 
 // Lifecycle receive gate.
-// Opened exactly once via onActivated completion.
 // MUST NOT be toggled for inflight backpressure.
 @property (nonatomic, assign) BOOL recvEnabled;
 
-@property (nonatomic, assign) NSUInteger inflightAckBytes;
+@property (nonatomic, assign) uint64_t inflightAckBytes;
 
 @end
 
@@ -137,6 +139,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     NSParameterAssert(pcb);
     if (self = [super init]) {
         _pcb = pcb;
+        _newStateStartMs = sys_now();
         _alive = YES;
         _writable = NO;
         _didNotifyActive = NO;
@@ -145,7 +148,6 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         _state = TFTCPConnectionNew;
         _pendingClose = NO;
         _recvEnabled = NO;
-        _inflightAckBytes = 0;
 
         NSString *localIP = nil;
         NSString *remoteIP = nil;
@@ -178,18 +180,16 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 
     self.pcbRef = [[TFObjectRef alloc] initWithObject:self];
 
-#if LWIP_TCP_PCB_NUM_EXT_ARGS
-    void *arg = [self.pcbRef retainedVoidPointer];
     tcp_arg(pcb, (__bridge void *)self.pcbRef);
-#else
-    tcp_arg(pcb, (__bridge void *)self.pcbRef);
-#endif
     tcp_recv(pcb, tf_tcp_recv);
     tcp_sent(pcb, tf_tcp_sent);
     tcp_poll(pcb, tf_tcp_poll, 2);
     tcp_err(pcb, tf_tcp_err);
 
 #if LWIP_TCP_PCB_NUM_EXT_ARGS
+    // tcp_ext_arg_set() establishes a pcb-lifetime ownership.
+    // `arg` will be destroyed exactly once by lwIP, regardless of early callback detachment.
+    void *arg = [self.pcbRef retainedVoidPointer];
     tcp_ext_arg_set_callbacks(pcb, TUNFORGE_TCP_EXTARG_ID, &tf_tcp_extarg_cbs);
     tcp_ext_arg_set(pcb, TUNFORGE_TCP_EXTARG_ID, arg);
 #endif
@@ -213,7 +213,17 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     [self notifyActiveOnceLocked];
 }
 
-- (void)ackRemoteDeliveredBytes:(NSUInteger)bytes {
+- (void)setInboundDeliveryEnabled:(BOOL)enabled {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    if (_recvEnabled == enabled) {
+        return;
+    }
+
+    _recvEnabled = enabled;
+}
+
+- (void)acknowledgeDeliveredBytes:(NSUInteger)bytes {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
     if (!self.alive || !self.pcb)
@@ -238,45 +248,25 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     [self updateInflightAckBytes:-(NSInteger)credit];
 }
 
-- (NSUInteger)currentMaxInflightAckBytes {
-    struct tcp_pcb *pcb = self.pcb;
-    if (!pcb) {
-        return kInflightCeilingBytes;
-    }
-
-    NSUInteger wnd = pcb->rcv_wnd; // already scaled
-    NSUInteger mss = pcb->mss ?: TCP_MSS;
-
-    // Safety: wnd must be reasonable
-    if (wnd < mss * 2) {
-        return kInflightFloorBytes;
-    }
-
-    // 25% rule
-    NSUInteger derived = wnd >> 2;
-
-    // Clamp
-    derived = MAX(MIN(derived, kInflightCeilingBytes), kInflightFloorBytes);
-
-    return derived;
-}
-
 - (TFTCPWriteResult)writeBytes:(const void *)bytes length:(NSUInteger)length {
     TF_ASSERT_ON_PACKETS_QUEUE();
+    // Contract: caller MUST ensure length <= UINT16_MAX, length > 0
 
-    // Contract: caller MUST ensure length <= UINT16_MAX
     if (!bytes || length == 0) {
-        return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteOK};
+        // Programming error - caller violated the contract
+        [TFTunForgeLog error:@"writeBytes length is empty; reject"];
+        NSAssert(bytes != NULL && length > 0, @"writeBytes length is zero");
+        return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteOverflow};
     }
 
     if (length > UINT16_MAX) {
         // Programming error - caller violated the contract
         [TFTunForgeLog error:@"writeBytes length exceeds UINT16_MAX; reject"];
-        assert(0 && "writeBytes length exceeds u16 limit");
-        return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteError};
+        NSAssert(length <= UINT16_MAX, @"writeBytes length exceeds u16 limit");
+        return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteOverflow};
     }
 
-    if (!self.alive || !self.pcb || self.state != TFTCPConnectionActive || self.writeFINFlag) {
+    if (!self.alive || !self.pcb || self.state != TFTCPConnectionActive || self.writeFIN) {
         return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteClosed};
     }
 
@@ -303,7 +293,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 
     if (data.length > UINT16_MAX) {
         [TFTunForgeLog error:@"writeData length exceeds UINT16_MAX; reject send"];
-        return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteError};
+        return (TFTCPWriteResult){.written = 0, .status = TFTCPWriteOverflow};
     }
     return [self writeBytes:data.bytes length:data.length];
 }
@@ -315,13 +305,11 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         return;
     if (self.state == TFTCPConnectionClosed)
         return;
-
-    if (self.writeFINFlag)
+    if (self.writeFIN)
         return;
-    self.writeFINFlag = YES;
+    self.writeFIN = YES;
 
-    [TFTunForgeLog info:@"TCP shutdownWrite (FIN)"];
-
+    [TFTunForgeLog info:@"TCP shutdownWrite"];
 #if LWIP_TCP
     // Shut TX only.
     tcp_shutdown(self.pcb, 0, 1);
@@ -351,6 +339,16 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 
 #pragma mark - Private
 
+- (BOOL)shouldAllowRecv:(struct tcp_pcb *)pcb {
+    if (!self.recvEnabled)  // lifecycle gate
+        return NO;
+    
+    if (!self.alive || self.state != TFTCPConnectionActive)
+        return NO;
+
+    return tf_tcp_read_ready(pcb);
+}
+
 - (void)updateInflightAckBytes:(NSInteger)delta {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
@@ -360,7 +358,8 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         NSUInteger dec = (NSUInteger)(-delta);
         self.inflightAckBytes = (dec >= self.inflightAckBytes) ? 0 : (self.inflightAckBytes - dec);
     }
-    // inflight backpressure is enforced at recv-time via shouldAllowRecvWithIncomingBytes:
+
+    // inflight backpressure is enforced at recv-time via shouldAllowRecv:
 }
 
 - (void)tryGracefulCloseLocked {
@@ -418,14 +417,15 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     [self terminateLocked:reason];
 }
 
-- (void)handlerReadEOFLocked {
+// Peer FIN observed (from app side, always): this is an event notification only,
+// does not imply closing the write side of the connection (which is handled by NetForge).
+- (void)handlePeerFINLocked {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
-    if (self.readEOFFlag)
+    if (self.readEOF)
         return;
-    self.readEOFFlag = YES;
-
-    [TFTunForgeLog info:@"TCP recv FIN (EOF)"];
+    self.readEOF = YES;
+    [TFTunForgeLog info:@"TCP recv FIN (EOF) from app side."];
 
     TFTCPReadEOFHandler onReadEOFCopy = self.onReadEOF;
     if (!onReadEOFCopy)
@@ -479,18 +479,6 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 
 #pragma mark - Internal helpers
 
-- (BOOL)shouldAllowRecvWithIncomingBytes:(NSUInteger)bytes {
-    if (!self.recvEnabled)
-        return NO; // lifecycle gate
-    if (!self.alive)
-        return NO;
-    if (self.state != TFTCPConnectionActive)
-        return NO;
-
-    NSUInteger maxInflight = [self currentMaxInflightAckBytes];
-    return (self.inflightAckBytes + bytes) <= maxInflight;
-}
-
 - (void)clearCallbackLocked {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
@@ -525,11 +513,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         if (!self || !self.alive)
             return;
         if (onActivatedCopy) {
-            onActivatedCopy(self, ^{
-                [TFGlobalScheduler.shared packetsPerformAsync:^{
-                    self.recvEnabled = YES;
-                }];
-            });
+            onActivatedCopy(self);
         }
     }];
 }
@@ -564,9 +548,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
     if (self.didNotifyTerminated)
-        return;
-
-    // pcb already destroyed by lwIP
+        return; // pcb already destroyed by lwIP
     self.pcb = NULL;
     [self terminateLocked:TFTCPConnectionTerminationReasonDestroyed];
 }
@@ -621,7 +603,7 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
     TF_ASSERT_ON_PACKETS_QUEUE();
 
     TFTCPConnection *conn = tf_conn_from_arg(arg);
-    if (!conn || !conn.alive) {
+    if (!conn || !conn.alive || conn.pcb != pcb) {
         if (p)
             pbuf_free(p);
         return ERR_OK;
@@ -636,8 +618,8 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
     }
 
     if (p == NULL) {
-        // Peer FIN observed: event only (Rule 4: do not infer close).
-        [conn handlerReadEOFLocked];
+        // Peer FIN(from app, always) observed: event only (Rule 4: do not infer close).
+        [conn handlePeerFINLocked];
         return ERR_OK;
     }
 
@@ -649,7 +631,7 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
 
     // Backpressure: refuse delivery WITHOUT freeing pbuf.
     // lwIP will retry later when recvEnabled becomes true.
-    if (![conn shouldAllowRecvWithIncomingBytes:tot]) {
+    if (![conn shouldAllowRecv:pcb]) {
         return ERR_MEM;
     }
 
@@ -657,8 +639,7 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
 
     // IMPORTANT:
     // Do NOT call tcp_recved here.
-    // Upper layer calls -ackRemoteDeliveredBytes: after it has copied/enqueued bytes.
-
+    // Upper layer calls -acknowledgeDeliveredBytes: after it has copied/enqueued bytes.
     TFTCPReadableBytesBatchHandler onReadableBytesCopy = conn.onReadableBytes;
     if (onReadableBytesCopy) {
         NSUInteger sliceCnt = 0;
@@ -711,10 +692,11 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
 
         pbuf_copy_partial(p, buf, tot, 0);
         NSData *data = [[NSData alloc] initWithBytesNoCopy:buf length:tot freeWhenDone:YES];
-
+        pbuf_free(p);
+        
         // Automatically acknowledge bytes for compatibility path since
         // onReadable handler has no completion callback.
-        [conn ackRemoteDeliveredBytes:tot];
+        [conn acknowledgeDeliveredBytes:tot];
 
         TFTCPReadableHandler onReadableCopy = conn.onReadable;
         weakify(conn);
@@ -726,8 +708,12 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
             if (onReadableCopy)
                 onReadableCopy(conn, data);
         }];
+
+        return ERR_OK;
     }
 
+    // drop.
+    tcp_recved(pcb, tot);
     pbuf_free(p);
     return ERR_OK;
 }
@@ -736,7 +722,7 @@ static err_t tf_tcp_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
     TFTCPConnection *conn = tf_conn_from_arg(arg);
-    if (!conn || !conn.alive)
+    if (!conn || !conn.alive || conn.pcb != pcb)
         return ERR_OK;
 
     // Observer-only hint
@@ -762,14 +748,23 @@ static err_t tf_tcp_poll(void *arg, struct tcp_pcb *pcb) {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
     TFTCPConnection *conn = tf_conn_from_arg(arg);
-    if (!conn || !conn.alive)
+    if (!conn || !conn.alive || conn.pcb != pcb)
         return ERR_OK;
+
+    if (conn.state == TFTCPConnectionNew) {
+        u32_t elapsed = sys_now() - conn.newStateStartMs;
+        if (elapsed >= kTCPNewStateRejectTimeoutMs) {
+            [TFTunForgeLog warn:@"TCP New-state reject timeout"];
+            [conn abortLocked:TFTCPConnectionTerminationReasonAbort];
+            return ERR_OK;
+        }
+    }
 
     // Optional observer-only hint
     [conn updateWritableLocked:tf_tcp_write_ready(pcb)];
 
     // Close retry (only if user requested graceful close and lwIP deferred it)
-    if (conn.pendingClose && conn.pcb == pcb) {
+    if (conn.pendingClose) {
         [conn tryGracefulCloseLocked];
     }
 
