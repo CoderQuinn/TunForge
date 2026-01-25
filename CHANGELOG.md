@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1] — 2026-01-25
+
+### Changed
+- Align README with updated TCP activation and inbound delivery gating (`setInboundDeliveryEnabled`).
+- Update receive credit method name in docs (`acknowledgeDeliveredBytes`).
+- Clarify Swift-facing singleton access (`TFIPStack.shared` / `TFIPStack.default()`).
+
 ## [0.5.0] — 2026-01-21
 
 ### Changed
