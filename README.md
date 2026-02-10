@@ -63,30 +63,6 @@ TunForge is not a proxy, protocol router, or VPN product by itself.
   - lwIP execution (`packetsQueue`)
   - user callbacks (`connectionsQueue`)
 
-## Explicit Non-Goals
-
-TunForge does not aim to provide:
-
-- Full UDP proxy semantics
-- Fragmented UDP reassembly
-- Application-layer protocols (HTTP / SOCKS / TLS)
-- Traffic accounting, statistics, or policy engines
-
-These belong to higher-level layers.
-
-## UDP Handling Policy
-
-TunForge does not implement general UDP proxying.
-
-- Non-fragmented UDP packets may pass through direct / bypass paths.
-- Fragmented UDP packets are intentionally unsupported.
-
-Fragmented UDP adds significant complexity and memory cost,
-while providing little practical value in modern VPN scenarios.
-
-Higher-level components (e.g. NetForge) are responsible for
-UDP routing, proxying, and protocol-specific behavior.
-
 ## Architecture Positioning
 
 ```
