@@ -67,15 +67,40 @@ TunForge is not a proxy, protocol router, or VPN product by itself.
 - Efficient send path (`writeBytes:length:`)
 - Clear separation between:
   - lwIP execution (`packetsQueue`)
-  - user callbacks (`connectionsQueue`)
+  - stack-level delegate hops (`connectionsQueue`)
+  - per-connection user callbacks (dedicated serial queues)
+
+## Explicit Non-Goals
+
+TunForge does not aim to provide:
+
+- Full UDP proxy semantics
+- Fragmented UDP reassembly
+- Application-layer protocols (HTTP / SOCKS / TLS)
+- Traffic accounting, statistics, or policy engines
+
+These belong to higher-level layers.
+
+## UDP Handling Policy
+
+TunForge does not implement general UDP proxying.
+
+- Non-fragmented UDP packets may pass through direct / bypass paths.
+- Fragmented UDP packets are intentionally unsupported.
+
+Fragmented UDP adds significant complexity and memory cost,
+while providing little practical value in modern VPN scenarios.
+
+Higher-level components in the embedding application are responsible for
+UDP routing, proxying, and protocol-specific behavior.
 
 ## Architecture Positioning
 
 ```
 ┌──────────────────────────────┐
-│           NetForge           │
-│  Routing / Policy / Proxy    │
-│  SOCKS5 / HTTP / HTTPS       │
+│   Host / application layer    │
+│  Routing / policy / proxy    │
+│  (SOCKS, HTTP, TLS, etc.)   │
 │  UDP direct / bypass         │
 └──────────────▲───────────────┘
                │
@@ -108,20 +133,19 @@ TunForge is a foundation layer, not a feature layer.
 ```swift
 .package(
     url: "https://github.com/CoderQuinn/TunForge",
-    from: "0.5.1"
+    from: "0.6.0"
 )
 ```
 
 ## Quick Usage Notes
 
-- Configure `TFGlobalScheduler` before accessing `TFIPStack`.
+- Configure `TFGlobalScheduler` before accessing `TFIPStack`. The host typically maps `packetsQueue` and `connectionsQueue` onto executors that match its runtime (for example a SwiftNIO `EventLoop`–bound dispatch queue): lwIP and `TFTCPConnection` state stay on `packetsQueue`; stack-level delegate work (e.g. `didAcceptNewTCPConnection`) uses `connectionsQueue`.
 - All lwIP interaction runs on `packetsQueue`.
-- User callbacks are dispatched on `connectionsQueue`.
-- In `didAcceptNewTCPConnection` (on `connectionsQueue`), call `handler(true)` exactly once.
-- The following APIs must be invoked on `packetsQueue` (or via `TFGlobalScheduler.shared.packetsPerformAsync` / `packetsPerformSync`):
-  - `markActive()` — explicitly accept the connection.
-  - `setInboundDeliveryEnabled(_:)` — control receive flow.
-  - `acknowledgeDeliveredBytes(_:)` — acknowledge consumed inbound data.
+- `TFTCPConnection` property callbacks run on a **per-connection serial** GCD queue (distinct connections run in parallel). The injected `connectionsQueue` is only for stack-level work (e.g. `didAcceptNewTCPConnection`), not for those per-connection property callbacks.
+- In `didAcceptNewTCPConnection`, call `handler(true)` exactly once.
+- Call `markActive()` explicitly to accept the connection.
+- Use `setInboundDeliveryEnabled(_:)` to control receive flow.
+- After consuming inbound data, call `acknowledgeDeliveredBytes(_:)`.
 - Close explicitly via `shutdownWrite()`, `gracefulClose()`, or `abort()`.
 
 TunForge assumes the caller is disciplined.
@@ -133,7 +157,7 @@ TunForge assumes the caller is disciplined.
 - Harden TCP lifecycle invariants
 - Strengthen backpressure correctness
 - Internal cleanup and API tightening
-- Preparation for parallel callback dispatch
+- Per-connection serial callback queues (parallel across connections)
 - Improved documentation of contracts and invariants
 
 ### Planned (Pre-1.0)
@@ -181,7 +205,7 @@ a small, predictable TCP data plane.
 Apache License 2.0
 
 > TunForge is part of the QuantumLink VPN prototype.
-> Higher-level routing and protocol logic live in NetForge and are
-> intentionally kept out of this repository.
+> Higher-level routing and protocol logic live outside this repository
+> by design.
 
 See [ROADMAP.md](./ROADMAP.md) for planned internal milestones.

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0] — 2026-05-10
+
+### Changed
+
+- `TFTCPConnection` property callbacks are scheduled on a **per-connection serial** GCD queue so different connections can run callbacks in parallel while preserving per-connection ordering. `TFGlobalScheduler.connectionsQueue` remains for stack-level delegates (e.g. TCP accept).
+- Documentation: clarify that `packetsQueue` / `connectionsQueue` are host-injected for executor alignment (e.g. SwiftNIO event loops); README architecture and integration notes use generic “host / embedding application” wording.
+
+### Notes
+
+- Recent validation has been largely **manual** (host app UI iterations plus stack integration), not broad automated regression. XCTest coverage for `TFTCPConnection` exists but is thin relative to lwIP edge cases.
+
 ## [0.5.1] — 2026-01-25
 
 ### Changed
@@ -56,9 +67,9 @@
 
 - Public API/integration contract updated (0.1.x -> 0.2.x)
 - `TFGlobalScheduler` must be configured once **before** the first `TFIPStack.defaultStack()` acquire
-- All lwIP-facing calls (`start/stop/inputPacket`, and `TFTCPConnection.markActive/setReceiveEnabled`) must run on `TFGlobalScheduler.packetsQueue`
+- All lwIP-facing calls (`start/stop/inputPacket`, and `TFTCPConnection.markActive/setInboundDeliveryEnabled`) must run on `TFGlobalScheduler.packetsQueue`
 - `TFIPStackDelegate.didAcceptNewTCPConnection(...handler:)` is invoked on `connectionsQueue` and the `handler` must be called exactly once
-- Accepted connections default to receive paused; upper layer must explicitly `markActive()` and `setReceiveEnabled(true)` when ready
+- Accepted connections default to receive paused; upper layer must explicitly `markActive()` and `setInboundDeliveryEnabled(true)` when ready
 
 ### Packaging & Docs
 

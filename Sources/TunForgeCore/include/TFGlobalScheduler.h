@@ -9,8 +9,18 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /*
- * Global scheduler driving lwip execution and delegate dispatch
- * TFQueueConfig is injected by upper(swift) layer and frozen on first acquire.
+ * Global scheduler driving lwIP execution and stack-level delegate dispatch.
+ *
+ * Both queues are supplied by the embedding host via `configureWithPacketsQueue:
+ * connectionsQueue:` and are frozen on first acquire. Typical intent is to hop work onto
+ * executors aligned with the host runtime (e.g. SwiftNIO `EventLoop`–bound queues) while
+ * keeping lwIP strictly on `packetsQueue`.
+ *
+ * packetsQueue — lwIP + `TFTCPConnection` state (strictly serialized).
+ *
+ * connectionsQueue — stack-level delegate path only (e.g. `TFIPStack` accept → host);
+ * not used for per-connection `TFTCPConnection` property callbacks (each connection uses
+ * its own serial GCD queue for those).
  */
 @interface TFGlobalScheduler : NSObject
 
@@ -27,7 +37,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)packetsPerformAsync:(dispatch_block_t _Nonnull)block;
 - (void)packetsPerformSync:(dispatch_block_t _Nonnull)block;
 
-/// Execute block on delegate queue
+/// Execute block on the stack-level `connectionsQueue` (e.g. accept delegate), not on a
+/// per-TFTCPConnection callback queue.
 - (void)connectionsPerformSync:(dispatch_block_t _Nonnull)block;
 - (void)connectionsPerformAsync:(dispatch_block_t _Nonnull)block;
 

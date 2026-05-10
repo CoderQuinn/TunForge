@@ -12,7 +12,14 @@
  Peer   = App side (TUN client)
 
  Note:
- lwIP only handles communication with the App side (Peer), and does not interact with or manage the real server's TCP lifecycle, which is fully handled by upper layers (e.g. NetForge).
+ lwIP only handles communication with the App side (Peer), and does not interact with or manage the real server's TCP lifecycle, which is fully handled by upper layers outside TunForge.
+
+ Concurrency:
+ Property callbacks (onActivated, onReadable*, onWritableChanged, onSentBytes, onReadEOF,
+ onTerminated) run on a dedicated serial GCD queue per TFTCPConnection instance. Different
+ connections may execute callbacks in parallel; ordering is defined only per connection.
+ Mutating APIs (markActive, write*, close paths, etc.) must still run on TFGlobalScheduler's
+ packetsQueue.
  */
 
 #import <Foundation/Foundation.h>
@@ -73,8 +80,7 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 @property (nonatomic, assign, readonly) BOOL writable;
 
 /// Fired exactly once after the TCP connection becomes active.
-/// “Inbound delivery is gated via setInboundDeliveryEnabled, typically driven by Flow backpressure.
-/// to allow inbound data delivery from lwIP.
+/// Inbound delivery is gated via setInboundDeliveryEnabled:, typically driven by Flow backpressure, before lwIP delivers payloads upward.
 @property (nullable, nonatomic, copy) TFTCPActivatedHandler onActivated;
 
 /// Compatibility path. Will allocate & copy.

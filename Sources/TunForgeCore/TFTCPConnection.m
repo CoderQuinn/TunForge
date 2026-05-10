@@ -23,6 +23,7 @@
  */
 
 #import "TFTCPConnection.h"
+#import "TFTCPConnectionTestingAPI.h"
 #import "TFGlobalScheduler.h"
 #import "TFObjectRef.h"
 #import "TFQueueHelpers.h"
@@ -126,6 +127,9 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 
 @property (nonatomic, assign) uint64_t inflightAckBytes;
 
+/// Per-connection serial queue for user callbacks (cross-connection parallelism).
+@property (nonatomic, strong) dispatch_queue_t callbackQueue;
+
 @end
 
 @implementation TFTCPConnection
@@ -165,9 +169,21 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
                                                      dstIP:remoteIP
                                                    dstPort:remotePort];
 
+        const char *qLabel = [[NSString stringWithFormat:@"com.tunforge.tcp.conn.callback.%p", (void *)pcb]
+            UTF8String];
+        _callbackQueue = dispatch_queue_create(qLabel, NULL); // serial
+
         [self setupPcb];
     }
     return self;
+}
+
+#pragma mark - Callback queue
+
+- (void)tf_performCallbackAsync:(dispatch_block_t)block {
+    NSParameterAssert(block);
+    NSAssert(self.callbackQueue != NULL, @"callbackQueue must exist");
+    dispatch_async(self.callbackQueue, block);
 }
 
 #pragma mark - Setup
@@ -340,6 +356,8 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 #pragma mark - Private
 
 - (BOOL)shouldAllowRecv:(struct tcp_pcb *)pcb {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
     if (!self.recvEnabled) // lifecycle gate
         return NO;
 
@@ -418,7 +436,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 }
 
 // Peer FIN observed (from app side, always): this is an event notification only,
-// does not imply closing the write side of the connection (which is handled by NetForge).
+// does not imply closing the write side of the connection (handled by upper layers).
 - (void)handlePeerFINLocked {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
@@ -432,7 +450,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         return;
 
     weakify(self);
-    [TFGlobalScheduler.shared connectionsPerformAsync:^{
+    [self tf_performCallbackAsync:^{
         strongify(self);
         if (!self || !self.alive)
             return;
@@ -466,7 +484,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         return;
 
     weakify(self);
-    [TFGlobalScheduler.shared connectionsPerformAsync:^{
+    [self tf_performCallbackAsync:^{
         strongify(self);
         if (!self) {
             return;
@@ -508,7 +526,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         return;
 
     weakify(self);
-    [TFGlobalScheduler.shared connectionsPerformAsync:^{
+    [self tf_performCallbackAsync:^{
         strongify(self);
         if (!self || !self.alive)
             return;
@@ -530,7 +548,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         return;
 
     weakify(self);
-    [TFGlobalScheduler.shared connectionsPerformAsync:^{
+    [self tf_performCallbackAsync:^{
         strongify(self);
         if (!self || !self.alive)
             return;
@@ -599,15 +617,10 @@ static inline TFTCPConnection *tf_conn_from_arg(void *arg) {
     return (TFTCPConnection *)obj;
 }
 
-static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) {
+/// lwIP recv path after `conn`/`pcb` have been validated against `arg`.
+static err_t tftcp_connection_process_app_recv(TFTCPConnection *conn, struct tcp_pcb *pcb, struct pbuf *p,
+                                             err_t err) {
     TF_ASSERT_ON_PACKETS_QUEUE();
-
-    TFTCPConnection *conn = tf_conn_from_arg(arg);
-    if (!conn || !conn.alive || conn.pcb != pcb) {
-        if (p)
-            pbuf_free(p);
-        return ERR_OK;
-    }
 
     if (err != ERR_OK) {
         if (p)
@@ -635,8 +648,6 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
         return ERR_MEM;
     }
 
-    [conn updateInflightAckBytes:tot];
-
     // IMPORTANT:
     // Do NOT call tcp_recved here.
     // Upper layer calls -acknowledgeDeliveredBytes: after it has copied/enqueued bytes.
@@ -649,9 +660,8 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
 
         TFBytesSlice *slices = (TFBytesSlice *)malloc(sizeof(TFBytesSlice) * sliceCnt);
         if (!slices) {
-            // fallback: drop safely
-            pbuf_free(p);
-            return ERR_OK;
+            // Same contract as shouldAllowRecv: retain pbuf; lwIP retries.
+            return ERR_MEM;
         }
 
         struct pbuf *q = p;
@@ -661,8 +671,10 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
             q = q->next;
         }
 
+        [conn updateInflightAckBytes:tot];
+
         weakify(conn);
-        [TFGlobalScheduler.shared connectionsPerformAsync:^{
+        [conn tf_performCallbackAsync:^{
             strongify(conn);
             if (!conn || !conn.alive || !onReadableBytesCopy) {
                 // must free even if handler gone
@@ -686,21 +698,22 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
         // Compatibility path: Copy bytes out first.
         void *buf = malloc(tot);
         if (!buf) {
-            pbuf_free(p);
-            return ERR_OK;
+            return ERR_MEM;
         }
 
         pbuf_copy_partial(p, buf, tot, 0);
         NSData *data = [[NSData alloc] initWithBytesNoCopy:buf length:tot freeWhenDone:YES];
         pbuf_free(p);
 
+        // Match zero-copy accounting so acknowledgeDeliveredBytes: opens lwIP's recv window.
+        [conn updateInflightAckBytes:tot];
         // Automatically acknowledge bytes for compatibility path since
         // onReadable handler has no completion callback.
         [conn acknowledgeDeliveredBytes:tot];
 
         TFTCPReadableHandler onReadableCopy = conn.onReadable;
         weakify(conn);
-        [TFGlobalScheduler.shared connectionsPerformAsync:^{
+        [conn tf_performCallbackAsync:^{
             strongify(conn);
             if (!conn || !conn.alive)
                 return;
@@ -718,6 +731,19 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
     return ERR_OK;
 }
 
+static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+
+    TFTCPConnection *conn = tf_conn_from_arg(arg);
+    if (!conn || !conn.alive || conn.pcb != pcb) {
+        if (p)
+            pbuf_free(p);
+        return ERR_OK;
+    }
+
+    return tftcp_connection_process_app_recv(conn, pcb, p, err);
+}
+
 static err_t tf_tcp_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
@@ -731,7 +757,7 @@ static err_t tf_tcp_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
     TFTCPSentBytesHandler onSentBytesCopy = conn.onSentBytes;
     if (onSentBytesCopy) {
         weakify(conn);
-        [TFGlobalScheduler.shared connectionsPerformAsync:^{
+        [conn tf_performCallbackAsync:^{
             strongify(conn);
             if (!conn || !conn.alive)
                 return;
@@ -792,3 +818,26 @@ static void tf_tcp_err(void *arg, err_t err) {
 }
 
 @end
+
+#pragma mark - Unit test hooks (see TFTCPConnectionTestingAPI.h)
+
+/// Same compilation unit as the class extension; avoids a separate test-only category.
+static struct tcp_pcb *tftcp_connection_pcb_for_testing(TFTCPConnection *conn) {
+    return conn.pcb;
+}
+
+err_t TFTCPConnectionTestingDeliverInboundPbuf(TFTCPConnection *conn, struct pbuf *p) {
+    return TFTCPConnectionTestingDeliverInboundWithErr(conn, p, ERR_OK);
+}
+
+err_t TFTCPConnectionTestingDeliverInboundWithErr(TFTCPConnection *conn, struct pbuf *p, err_t lwerr) {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+    if (!conn) {
+        return ERR_ARG;
+    }
+    struct tcp_pcb *pcb = tftcp_connection_pcb_for_testing(conn);
+    if (!pcb || !conn.alive) {
+        return ERR_ARG;
+    }
+    return tftcp_connection_process_app_recv(conn, pcb, p, lwerr);
+}

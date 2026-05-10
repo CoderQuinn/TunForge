@@ -44,6 +44,10 @@ let package = Package(
                 .headerSearchPath("src/include"),
                 .define("LWIP_IOS", .when(platforms: [.iOS])),
                 .define("LWIP_MACOS", .when(platforms: [.macOS])),
+
+                // 🔽 Debug / Release
+                .define("TUNFORGE_DEBUG", .when(configuration: .debug)),
+                .define("TUNFORGE_RELEASE", .when(configuration: .release)),
             ]
         ),
 
@@ -61,6 +65,10 @@ let package = Package(
             cSettings: [
                 .headerSearchPath("../Lwip/src/include"),
                 .headerSearchPath("../Lwip/custom"),
+
+                // 🔽 Debug / Release
+                .define("TUNFORGE_DEBUG", .when(configuration: .debug)),
+                .define("TUNFORGE_RELEASE", .when(configuration: .release)),
             ]
         ),
 
@@ -82,6 +90,18 @@ let package = Package(
             name: "TunForgeTests",
             dependencies: ["TunForge"],
             path: "Tests/TunForgeTests"
+        ),
+        .testTarget(
+            name: "TunForgeCoreTests",
+            dependencies: ["TunForgeCore"],
+            path: "Tests/TunForgeCoreTests",
+            cSettings: [
+                .headerSearchPath("../../Sources/Lwip/src/include"),
+                .headerSearchPath("../../Sources/Lwip/custom"),
+                .headerSearchPath("../../Sources/Lwip/custom/include"),
+                .headerSearchPath("../../Sources/TunForgeCore/include"),
+                .headerSearchPath("../../Sources/TunForgeCore"),
+            ]
         ),
     ]
 )
