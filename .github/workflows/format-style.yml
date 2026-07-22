@@ -2,20 +2,33 @@ name: format
 
 on:
   push:
-    branches: ["*"]
+    branches: [main, "feat-*", "hotfix*", "release/*"]
   pull_request:
-    branches: ["main"]
+    branches: [main]
+
+concurrency:
+  group: format-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   format:
+    name: clang-format (ObjC/C)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install clang-format
-
         run: sudo apt-get update && sudo apt-get install -y clang-format-16
 
-      - name: Check clang-format (ObjC/C)
+      - name: Check clang-format (TunForgeCore)
         run: |
-          find Sources/TunForgeCore -type f \( -name "*.m" -o -name "*.mm" -o -name "*.h" -o -name "*.c" -o -name "*.cpp" \) -print0 | xargs -0 clang-format-16 -i
+          set -euo pipefail
+          find Sources/TunForgeCore -type f \( -name '*.m' -o -name '*.mm' -o -name '*.h' -o -name '*.c' -o -name '*.cpp' \) -print0 \
+            | xargs -0 clang-format-16 -i
+          if ! git diff --quiet; then
+            echo "::error::clang-format drift detected in Sources/TunForgeCore. Run clang-format locally and commit."
+            git --no-pager diff --stat
+            git --no-pager diff
+            exit 1
+          fi
+          echo "clang-format clean"

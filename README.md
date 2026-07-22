@@ -1,7 +1,8 @@
 # TunForge
-[![CI](https://github.com/CoderQuinn/TunForge/actions/workflows/ci.yml/badge.svg)](
-https://github.com/CoderQuinn/TunForge/actions/workflows/ci.yml
-)
+
+[![CI](https://github.com/CoderQuinn/TunForge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/CoderQuinn/TunForge/actions/workflows/ci.yml)
+[![Unit Tests](https://github.com/CoderQuinn/TunForge/actions/workflows/unit-tests.yml/badge.svg?branch=main)](https://github.com/CoderQuinn/TunForge/actions/workflows/unit-tests.yml)
+[![XCTest](https://img.shields.io/badge/unit%20tests-XCTest-blue)](docs/TESTING.md)
 ![License](https://img.shields.io/github/license/CoderQuinn/TunForge)
 ![Status](https://img.shields.io/badge/status-core_stable_(pre--1.0)-blue)
 ![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20macOS-blue)
@@ -144,6 +145,16 @@ TunForge assumes the caller is disciplined.
 - Full UDP proxy semantics
 - Application-layer protocols
 - Metrics, accounting, or analytics
+
+## Testing
+
+Unit tests are **XCTest-only** (Core ObjC + Swift facade). See [docs/TESTING.md](./docs/TESTING.md) for layout, process-global rules, and PR checklist.
+
+```bash
+./Scripts/run-tests.sh
+```
+
+CI: [CI](https://github.com/CoderQuinn/TunForge/actions/workflows/ci.yml) builds and tests; [Unit Tests](https://github.com/CoderQuinn/TunForge/actions/workflows/unit-tests.yml) is the dedicated test workflow (README badge).
 
 ## Status
 
