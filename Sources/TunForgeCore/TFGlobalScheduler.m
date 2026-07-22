@@ -57,6 +57,15 @@ static TFGlobalScheduler *_instance;
 
         self.packetsQueue = packetsQueue;
         self.connectionsQueue = connectionsQueue;
+
+        // Bind queue-specific keys so tf_on_specific_queue() / TF_ASSERT_ON_PACKETS_QUEUE()
+        // can detect the current execution context. Without this, the "already on queue"
+        // fast path in tf_perform_sync/async never triggers (re-entrant sync would deadlock)
+        // and the packets-queue assertion is meaningless.
+        TFBindQueueSpecific(packetsQueue, TFGetPacketsQueueKey(), (void *)TFGetPacketsQueueKey());
+        TFBindQueueSpecific(
+            connectionsQueue, TFGetConnectionsQueueKey(), (void *)TFGetConnectionsQueueKey());
+
         self.configured = YES;
 
         [TFTunForgeLog info:@"TFGlobalScheduler configured"];

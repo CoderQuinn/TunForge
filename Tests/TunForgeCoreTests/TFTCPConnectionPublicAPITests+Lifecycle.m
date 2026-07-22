@@ -6,6 +6,7 @@
 #import "TFTCPConnectionPublicAPITests.h"
 #import "TunForgeCore.h"
 #import "TFTCPConnectionTestingAPI.h"
+#import "TFQueueHelpers.h"
 
 @implementation TFTCPConnectionPublicAPITests (Lifecycle)
 
@@ -99,6 +100,71 @@
     [TFGlobalScheduler.shared packetsPerformSync:^{
         [connRef abort];
     }];
+}
+
+- (void)testNewStateTimeout_abortsWithoutMarkActive {
+    XCTestExpectation *exp = [self expectationWithDescription:@"newTimeout"];
+    __block TFTCPConnection *connRef = nil;
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        struct tcp_pcb *pcb = TFTCPConnectionTestingCreateSyntheticEstablishedPCB();
+        XCTAssertNotEqual(pcb, NULL);
+        connRef = [[TFTCPConnection alloc] initWithTCPPcb:pcb];
+        connRef.onTerminated = ^(TFTCPConnection *c, TFTCPConnectionTerminationReason reason) {
+            (void)c;
+            XCTAssertEqual(reason, TFTCPConnectionTerminationReasonAbort);
+            [exp fulfill];
+        };
+        TFTCPConnectionTestingAccelerateNewStateTimeout(connRef);
+        err_t r = TFTCPConnectionTestingTriggerPoll(connRef);
+        XCTAssertEqual(r, ERR_OK);
+    }];
+    [self waitForExpectationsWithTimeout:3 handler:nil];
+    XCTAssertFalse(connRef.alive);
+}
+
+- (void)testOnActivated_runsOnPerConnectionQueueNotConnectionsQueue {
+    XCTestExpectation *exp = [self expectationWithDescription:@"activatedQueue"];
+    __block BOOL onConnections = YES;
+    __block BOOL onPackets = YES;
+    __block TFTCPConnection *connRef = nil;
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        struct tcp_pcb *pcb = TFTCPConnectionTestingCreateSyntheticEstablishedPCB();
+        XCTAssertNotEqual(pcb, NULL);
+        connRef = [[TFTCPConnection alloc] initWithTCPPcb:pcb];
+        connRef.onActivated = ^(TFTCPConnection *c) {
+            (void)c;
+            onConnections = TFIsOnQueue(TFGetConnectionsQueueKey());
+            onPackets = TFIsOnQueue(TFGetPacketsQueueKey());
+            [exp fulfill];
+        };
+        [connRef markActive];
+    }];
+    [self waitForExpectationsWithTimeout:3 handler:nil];
+    XCTAssertFalse(onConnections);
+    XCTAssertFalse(onPackets);
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        [connRef abort];
+    }];
+}
+
+- (void)testGracefulClose_clearsPCBPointer {
+    XCTestExpectation *exp = [self expectationWithDescription:@"terminated"];
+    __block TFTCPConnection *connRef = nil;
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        struct tcp_pcb *pcb = TFTCPConnectionTestingCreateSyntheticEstablishedPCB();
+        XCTAssertNotEqual(pcb, NULL);
+        connRef = [[TFTCPConnection alloc] initWithTCPPcb:pcb];
+        [connRef markActive];
+        XCTAssertTrue(TFTCPConnectionTestingHasPCB(connRef));
+        connRef.onTerminated = ^(TFTCPConnection *c, TFTCPConnectionTerminationReason reason) {
+            (void)c;
+            XCTAssertEqual(reason, TFTCPConnectionTerminationReasonClose);
+            [exp fulfill];
+        };
+        [connRef gracefulClose];
+        XCTAssertFalse(TFTCPConnectionTestingHasPCB(connRef));
+    }];
+    [self waitForExpectationsWithTimeout:3 handler:nil];
 }
 
 @end

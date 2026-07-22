@@ -109,6 +109,11 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 
 // Marks the connection as active, accepting the lwIP TCP connection
 // and allowing data delivery to upper layers.
+//
+// This is the second phase of accept: after the delegate's accept handler is called with
+// YES (ownership hand-off), the host MUST call -markActive to actually establish the
+// connection and fire onActivated. Until then the connection stays in its New state and
+// will abort on a New-state timeout. Must run on packetsQueue. Idempotent.
 - (void)markActive;
 
 /// Controls whether inbound payloads from app are delivered to upper layers.

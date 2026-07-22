@@ -130,6 +130,11 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 /// Per-connection serial queue for user callbacks (cross-connection parallelism).
 @property (nonatomic, strong) dispatch_queue_t callbackQueue;
 
+/// Self-retain while state == New so a host that drops the accept reference (or never
+/// calls the accept handler) cannot orphan the PCB / listen backlog before New-state
+/// timeout or an explicit abort. Cleared on markActive / terminate.
+@property (nonatomic, strong, nullable) id acceptPhaseRetain;
+
 @end
 
 @implementation TFTCPConnection
@@ -174,6 +179,11 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         _callbackQueue = dispatch_queue_create(qLabel, NULL); // serial
 
         [self setupPcb];
+
+        // Keep the object alive through the New phase (accept hand-off / markActive /
+        // New-state timeout). Without this, dropping the host's reference orphans the PCB
+        // with TF_BACKLOGPEND and permanently shrinks the listen backlog.
+        _acceptPhaseRetain = self;
     }
     return self;
 }
@@ -222,6 +232,7 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
         return;
 
     self.state = TFTCPConnectionActive;
+    self.acceptPhaseRetain = nil;
 
     tcp_backlog_accepted(self.pcb);
 
@@ -396,7 +407,9 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     err_t err = tcp_close(self.pcb);
     switch (err) {
     case ERR_OK:
-        // After tcp_close, pcb may be freed by lwIP; never touch it again.
+        // tcp_close may keep the PCB alive (e.g. ESTABLISHED → FIN_WAIT_1). Detach callbacks
+        // before dropping the pointer so lwIP cannot re-enter a terminating connection.
+        [self clearCallbackLocked];
         self.pcb = NULL;
         self.pendingClose = NO;
         [self terminateLocked:TFTCPConnectionTerminationReasonClose];
@@ -480,18 +493,16 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
     [TFTunForgeLog info:[NSString stringWithFormat:@"TCP terminated, reason=%ld", (long)reason]];
 
     TFTCPTerminatedHandler onTerminatedCopy = self.onTerminated;
+    // Hold self across the callback hop even after releasing acceptPhaseRetain — otherwise a
+    // host that already dropped its reference would deallocate before onTerminated runs.
+    __strong TFTCPConnection *strongSelf = self;
+    self.acceptPhaseRetain = nil;
+
     if (!onTerminatedCopy)
         return;
 
-    weakify(self);
-    [self tf_performCallbackAsync:^{
-        strongify(self);
-        if (!self) {
-            return;
-        }
-
-        if (onTerminatedCopy)
-            onTerminatedCopy(self, reason);
+    [strongSelf tf_performCallbackAsync:^{
+        onTerminatedCopy(strongSelf, reason);
     }];
 }
 
@@ -673,6 +684,7 @@ static err_t tftcp_connection_process_app_recv(TFTCPConnection *conn, struct tcp
 
         [conn updateInflightAckBytes:tot];
 
+        __block BOOL completionConsumed = NO;
         weakify(conn);
         [conn tf_performCallbackAsync:^{
             strongify(conn);
@@ -687,6 +699,11 @@ static err_t tftcp_connection_process_app_recv(TFTCPConnection *conn, struct tcp
 
             onReadableBytesCopy(conn, slices, sliceCnt, tot, ^{
                 [TFGlobalScheduler.shared packetsPerformAsync:^{
+                    if (completionConsumed) {
+                        [TFTunForgeLog warn:@"onReadableBytes completion invoked more than once; ignoring"];
+                        return;
+                    }
+                    completionConsumed = YES;
                     free(slices);
                     pbuf_free(p);
                 }];
@@ -774,7 +791,20 @@ static err_t tf_tcp_poll(void *arg, struct tcp_pcb *pcb) {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
     TFTCPConnection *conn = tf_conn_from_arg(arg);
-    if (!conn || !conn.alive || conn.pcb != pcb)
+    if (!conn) {
+        // Safety net: ObjC wrapper gone (e.g. New-state retain cleared + host drop) but PCB
+        // still registered. Reclaim PCB and listen backlog rather than leaking accepts_pending.
+        if (pcb) {
+            tcp_arg(pcb, NULL);
+            tcp_recv(pcb, NULL);
+            tcp_sent(pcb, NULL);
+            tcp_poll(pcb, NULL, 0);
+            tcp_err(pcb, NULL);
+            tcp_abort(pcb);
+        }
+        return ERR_ABRT;
+    }
+    if (!conn.alive || conn.pcb != pcb)
         return ERR_OK;
 
     if (conn.state == TFTCPConnectionNew) {
@@ -840,4 +870,41 @@ err_t TFTCPConnectionTestingDeliverInboundWithErr(TFTCPConnection *conn, struct 
         return ERR_ARG;
     }
     return tftcp_connection_process_app_recv(conn, pcb, p, lwerr);
+}
+
+void TFTCPConnectionTestingAccelerateNewStateTimeout(TFTCPConnection *conn) {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+    if (!conn) {
+        return;
+    }
+    // kTCPNewStateRejectTimeoutMs is 10000; push start far enough into the past.
+    conn.newStateStartMs = sys_now() - 20000u;
+}
+
+err_t TFTCPConnectionTestingTriggerPoll(TFTCPConnection *conn) {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+    if (!conn) {
+        return ERR_ARG;
+    }
+    struct tcp_pcb *pcb = tftcp_connection_pcb_for_testing(conn);
+    if (!pcb) {
+        return ERR_ARG;
+    }
+    return tf_tcp_poll((__bridge void *)conn.pcbRef, pcb);
+}
+
+uint64_t TFTCPConnectionTestingInflightAckBytes(TFTCPConnection *conn) {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+    if (!conn) {
+        return 0;
+    }
+    return conn.inflightAckBytes;
+}
+
+BOOL TFTCPConnectionTestingHasPCB(TFTCPConnection *conn) {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+    if (!conn) {
+        return NO;
+    }
+    return tftcp_connection_pcb_for_testing(conn) != NULL;
 }

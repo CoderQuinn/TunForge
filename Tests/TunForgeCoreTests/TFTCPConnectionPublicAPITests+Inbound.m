@@ -109,18 +109,22 @@
 
 - (void)testSyntheticRecvErr_abortsConnection {
     XCTestExpectation *exp = [self expectationWithDescription:@"terminatedAfterRecvErr"];
+    // Hold a strong ref across the wait: onTerminated is delivered asynchronously on the
+    // connection's callback queue and captures self weakly, so the connection must outlive
+    // the synchronous packets-queue block.
+    __block TFTCPConnection *connRef = nil;
     [TFGlobalScheduler.shared packetsPerformSync:^{
         struct tcp_pcb *pcb = TFTCPConnectionTestingCreateSyntheticEstablishedPCB();
         XCTAssertNotEqual(pcb, NULL);
-        TFTCPConnection *conn = [[TFTCPConnection alloc] initWithTCPPcb:pcb];
-        [conn markActive];
-        conn.onTerminated = ^(TFTCPConnection *c, TFTCPConnectionTerminationReason reason) {
+        connRef = [[TFTCPConnection alloc] initWithTCPPcb:pcb];
+        [connRef markActive];
+        connRef.onTerminated = ^(TFTCPConnection *c, TFTCPConnectionTerminationReason reason) {
             XCTAssertEqual(reason, TFTCPConnectionTerminationReasonAbort);
             [exp fulfill];
         };
         struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, 1, PBUF_RAM);
         XCTAssertNotEqual(p, NULL);
-        (void)TFTCPConnectionTestingDeliverInboundWithErr(conn, p, ERR_BUF);
+        (void)TFTCPConnectionTestingDeliverInboundWithErr(connRef, p, ERR_BUF);
     }];
     [self waitForExpectationsWithTimeout:3 handler:nil];
 }
@@ -142,6 +146,120 @@
     [self waitForExpectationsWithTimeout:3 handler:nil];
     [TFGlobalScheduler.shared packetsPerformSync:^{
         [connRef abort];
+    }];
+}
+
+- (void)testOnReadableBytes_partialThenFullAck_clearsInflight {
+    XCTestExpectation *exp = [self expectationWithDescription:@"readable"];
+    __block TFTCPConnection *connRef = nil;
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        struct tcp_pcb *pcb = TFTCPConnectionTestingCreateSyntheticEstablishedPCB();
+        XCTAssertNotEqual(pcb, NULL);
+        connRef = [[TFTCPConnection alloc] initWithTCPPcb:pcb];
+        [connRef markActive];
+        [connRef setInboundDeliveryEnabled:YES];
+        connRef.onReadableBytes = ^(TFTCPConnection *c, const TFBytesSlice *slices, NSUInteger sliceCount,
+                                     NSUInteger totalBytesLength, TFTCPReceiveGateCompletion completion) {
+            (void)c;
+            (void)slices;
+            (void)sliceCount;
+            XCTAssertEqual(totalBytesLength, 4UL);
+            completion();
+            [exp fulfill];
+        };
+        struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, 4, PBUF_RAM);
+        XCTAssertNotEqual(p, NULL);
+        memcpy(p->payload, "abcd", 4);
+        XCTAssertEqual(TFTCPConnectionTestingDeliverInboundPbuf(connRef, p), ERR_OK);
+    }];
+    [self waitForExpectationsWithTimeout:3 handler:nil];
+
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        XCTAssertEqual(TFTCPConnectionTestingInflightAckBytes(connRef), 4ULL);
+        [connRef acknowledgeDeliveredBytes:2];
+        XCTAssertEqual(TFTCPConnectionTestingInflightAckBytes(connRef), 2ULL);
+        [connRef acknowledgeDeliveredBytes:2];
+        XCTAssertEqual(TFTCPConnectionTestingInflightAckBytes(connRef), 0ULL);
+        [connRef abort];
+    }];
+}
+
+- (void)testOnReadableBytes_overAck_clampsToInflight {
+    XCTestExpectation *exp = [self expectationWithDescription:@"readable"];
+    __block TFTCPConnection *connRef = nil;
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        struct tcp_pcb *pcb = TFTCPConnectionTestingCreateSyntheticEstablishedPCB();
+        XCTAssertNotEqual(pcb, NULL);
+        connRef = [[TFTCPConnection alloc] initWithTCPPcb:pcb];
+        [connRef markActive];
+        [connRef setInboundDeliveryEnabled:YES];
+        connRef.onReadableBytes = ^(TFTCPConnection *c, const TFBytesSlice *slices, NSUInteger sliceCount,
+                                     NSUInteger totalBytesLength, TFTCPReceiveGateCompletion completion) {
+            (void)c;
+            (void)slices;
+            (void)sliceCount;
+            (void)totalBytesLength;
+            completion();
+            [exp fulfill];
+        };
+        struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, 3, PBUF_RAM);
+        XCTAssertNotEqual(p, NULL);
+        memcpy(p->payload, "xyz", 3);
+        XCTAssertEqual(TFTCPConnectionTestingDeliverInboundPbuf(connRef, p), ERR_OK);
+    }];
+    [self waitForExpectationsWithTimeout:3 handler:nil];
+
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        XCTAssertEqual(TFTCPConnectionTestingInflightAckBytes(connRef), 3ULL);
+        [connRef acknowledgeDeliveredBytes:100];
+        XCTAssertEqual(TFTCPConnectionTestingInflightAckBytes(connRef), 0ULL);
+        [connRef abort];
+    }];
+}
+
+- (void)testOnReadableBytes_doubleCompletion_isSafe {
+    XCTestExpectation *exp = [self expectationWithDescription:@"readable"];
+    __block TFTCPConnection *connRef = nil;
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        struct tcp_pcb *pcb = TFTCPConnectionTestingCreateSyntheticEstablishedPCB();
+        XCTAssertNotEqual(pcb, NULL);
+        connRef = [[TFTCPConnection alloc] initWithTCPPcb:pcb];
+        [connRef markActive];
+        [connRef setInboundDeliveryEnabled:YES];
+        connRef.onReadableBytes = ^(TFTCPConnection *c, const TFBytesSlice *slices, NSUInteger sliceCount,
+                                     NSUInteger totalBytesLength, TFTCPReceiveGateCompletion completion) {
+            (void)c;
+            (void)slices;
+            (void)sliceCount;
+            (void)totalBytesLength;
+            completion();
+            completion(); // programmer error; must not double-free
+            [exp fulfill];
+        };
+        struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, 1, PBUF_RAM);
+        XCTAssertNotEqual(p, NULL);
+        memset(p->payload, 'z', 1);
+        XCTAssertEqual(TFTCPConnectionTestingDeliverInboundPbuf(connRef, p), ERR_OK);
+    }];
+    [self waitForExpectationsWithTimeout:3 handler:nil];
+    // Allow both completion hops to drain on packetsQueue.
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        [connRef abort];
+    }];
+}
+
+- (void)testInboundBeforeMarkActive_returnsErrMem {
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        struct tcp_pcb *pcb = TFTCPConnectionTestingCreateSyntheticEstablishedPCB();
+        XCTAssertNotEqual(pcb, NULL);
+        TFTCPConnection *conn = [[TFTCPConnection alloc] initWithTCPPcb:pcb];
+        // New + recvEnabled default NO
+        struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, 2, PBUF_RAM);
+        XCTAssertNotEqual(p, NULL);
+        err_t r = TFTCPConnectionTestingDeliverInboundPbuf(conn, p);
+        XCTAssertEqual(r, ERR_MEM);
+        pbuf_free(p);
+        [conn abort];
     }];
 }
 

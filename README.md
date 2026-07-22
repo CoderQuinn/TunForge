@@ -142,8 +142,8 @@ TunForge is a foundation layer, not a feature layer.
 - Configure `TFGlobalScheduler` before accessing `TFIPStack`. The host typically maps `packetsQueue` and `connectionsQueue` onto executors that match its runtime (for example a SwiftNIO `EventLoop`–bound dispatch queue): lwIP and `TFTCPConnection` state stay on `packetsQueue`; stack-level delegate work (e.g. `didAcceptNewTCPConnection`) uses `connectionsQueue`.
 - All lwIP interaction runs on `packetsQueue`.
 - `TFTCPConnection` property callbacks run on a **per-connection serial** GCD queue (distinct connections run in parallel). The injected `connectionsQueue` is only for stack-level work (e.g. `didAcceptNewTCPConnection`), not for those per-connection property callbacks.
-- In `didAcceptNewTCPConnection`, call `handler(true)` exactly once.
-- Call `markActive()` explicitly to accept the connection.
+- In `didAcceptNewTCPConnection`, call the accept handler exactly once: `handler(true)` hands off ownership (it does **not** activate), `handler(false)` rejects.
+- After accepting, call `markActive()` explicitly to establish the connection (e.g. once upstream is ready); otherwise it aborts on a New-state timeout.
 - Use `setInboundDeliveryEnabled(_:)` to control receive flow.
 - After consuming inbound data, call `acknowledgeDeliveredBytes(_:)`.
 - Close explicitly via `shutdownWrite()`, `gracefulClose()`, or `abort()`.
@@ -204,7 +204,7 @@ a small, predictable TCP data plane.
 
 Apache License 2.0
 
-> TunForge is part of the QuantumLink VPN prototype.
+> TunForge is a foundation layer.
 > Higher-level routing and protocol logic live outside this repository
 > by design.
 
