@@ -17,10 +17,12 @@ struct tcp_pcb;
 struct tcp_pcb *_Nullable TFTCPConnectionTestingCreateSyntheticEstablishedPCB(void);
 
 /// Mirrors lwIP `tcp_recv` with `err == ERR_OK` (synthetic inbound data). Must run on `packetsQueue`.
-FOUNDATION_EXPORT err_t TFTCPConnectionTestingDeliverInboundPbuf(TFTCPConnection *conn, struct pbuf *p);
+FOUNDATION_EXPORT err_t TFTCPConnectionTestingDeliverInboundPbuf(TFTCPConnection *conn,
+                                                                 struct pbuf *p);
 
 /// Same as `TFTCPConnectionTestingDeliverInboundPbuf` but supplies a synthetic lwIP `err` (e.g. `ERR_BUF`).
-FOUNDATION_EXPORT err_t TFTCPConnectionTestingDeliverInboundWithErr(TFTCPConnection *conn, struct pbuf *p,
+FOUNDATION_EXPORT err_t TFTCPConnectionTestingDeliverInboundWithErr(TFTCPConnection *conn,
+                                                                    struct pbuf *p,
                                                                     err_t lwerr);
 
 /// Forces New-state reject timeout on the next poll (sets start time far in the past).

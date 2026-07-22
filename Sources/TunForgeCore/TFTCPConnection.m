@@ -174,8 +174,8 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
                                                      dstIP:remoteIP
                                                    dstPort:remotePort];
 
-        const char *qLabel = [[NSString stringWithFormat:@"com.tunforge.tcp.conn.callback.%p", (void *)pcb]
-            UTF8String];
+        const char *qLabel = [[NSString
+            stringWithFormat:@"com.tunforge.tcp.conn.callback.%p", (void *)pcb] UTF8String];
         _callbackQueue = dispatch_queue_create(qLabel, NULL); // serial
 
         [self setupPcb];
@@ -629,8 +629,10 @@ static inline TFTCPConnection *tf_conn_from_arg(void *arg) {
 }
 
 /// lwIP recv path after `conn`/`pcb` have been validated against `arg`.
-static err_t tftcp_connection_process_app_recv(TFTCPConnection *conn, struct tcp_pcb *pcb, struct pbuf *p,
-                                             err_t err) {
+static err_t tftcp_connection_process_app_recv(TFTCPConnection *conn,
+                                               struct tcp_pcb *pcb,
+                                               struct pbuf *p,
+                                               err_t err) {
     TF_ASSERT_ON_PACKETS_QUEUE();
 
     if (err != ERR_OK) {
@@ -700,7 +702,8 @@ static err_t tftcp_connection_process_app_recv(TFTCPConnection *conn, struct tcp
             onReadableBytesCopy(conn, slices, sliceCnt, tot, ^{
                 [TFGlobalScheduler.shared packetsPerformAsync:^{
                     if (completionConsumed) {
-                        [TFTunForgeLog warn:@"onReadableBytes completion invoked more than once; ignoring"];
+                        [TFTunForgeLog
+                            warn:@"onReadableBytes completion invoked more than once; ignoring"];
                         return;
                     }
                     completionConsumed = YES;
@@ -860,7 +863,9 @@ err_t TFTCPConnectionTestingDeliverInboundPbuf(TFTCPConnection *conn, struct pbu
     return TFTCPConnectionTestingDeliverInboundWithErr(conn, p, ERR_OK);
 }
 
-err_t TFTCPConnectionTestingDeliverInboundWithErr(TFTCPConnection *conn, struct pbuf *p, err_t lwerr) {
+err_t TFTCPConnectionTestingDeliverInboundWithErr(TFTCPConnection *conn,
+                                                  struct pbuf *p,
+                                                  err_t lwerr) {
     TF_ASSERT_ON_PACKETS_QUEUE();
     if (!conn) {
         return ERR_ARG;
