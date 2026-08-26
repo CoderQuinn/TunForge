@@ -340,9 +340,9 @@ typedef NS_ENUM(NSInteger, TFTCPConnectionState) {
 #pragma mark - Private
 
 - (BOOL)shouldAllowRecv:(struct tcp_pcb *)pcb {
-    if (!self.recvEnabled)  // lifecycle gate
+    if (!self.recvEnabled) // lifecycle gate
         return NO;
-    
+
     if (!self.alive || self.state != TFTCPConnectionActive)
         return NO;
 
@@ -693,7 +693,7 @@ static err_t tf_tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t e
         pbuf_copy_partial(p, buf, tot, 0);
         NSData *data = [[NSData alloc] initWithBytesNoCopy:buf length:tot freeWhenDone:YES];
         pbuf_free(p);
-        
+
         // Automatically acknowledge bytes for compatibility path since
         // onReadable handler has no completion callback.
         [conn acknowledgeDeliveredBytes:tot];
