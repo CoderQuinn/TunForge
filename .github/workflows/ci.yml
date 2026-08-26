@@ -5,16 +5,28 @@ on:
     branches: [main, "feat-*", "hotfix*", "release/*"]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
-    name: Build & Test (macOS)
+  build:
+    name: Build (${{ matrix.configuration }})
     runs-on: macos-15
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - configuration: Debug
+            swift_flags: ""
+          - configuration: Release
+            swift_flags: "-c release"
 
     steps:
       - name: Checkout
@@ -31,24 +43,26 @@ jobs:
           path: |
             ~/.swiftpm
             .build
-          key: ${{ runner.os }}-spm-${{ hashFiles('Package.swift', '**/Package.resolved') }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          key: ${{ runner.os }}-spm-${{ matrix.configuration }}-${{ hashFiles('Package.swift', '**/Package.resolved') }}-${{ hashFiles('.github/workflows/ci.yml') }}
           restore-keys: |
+            ${{ runner.os }}-spm-${{ matrix.configuration }}-
             ${{ runner.os }}-spm-
 
       - name: Swift toolchain
         run: swift --version
 
-      - name: Build
+      - name: Build TunForgeCore
         run: |
-          swift build --target TunForgeCore
-          swift build --target TunForge
+          swift build ${{ matrix.swift_flags }} --target TunForgeCore
 
-      - name: Unit tests (canonical)
-        run: ./Scripts/run-tests.sh
+      - name: Build TunForge
+        run: |
+          swift build ${{ matrix.swift_flags }} --target TunForge
 
       - name: Summarize
         if: always()
         run: |
           echo "### TunForge CI" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Configuration: ${{ matrix.configuration }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Build: TunForgeCore + TunForge" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Tests: \`./Scripts/run-tests.sh\` (XCTest — see docs/TESTING.md)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tests: enforced by the Unit Tests and Regression Tests workflows" >> "$GITHUB_STEP_SUMMARY"

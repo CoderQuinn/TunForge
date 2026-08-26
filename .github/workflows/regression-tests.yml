@@ -1,4 +1,4 @@
-name: Unit Tests
+name: Regression Tests
 
 on:
   push:
@@ -11,12 +11,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: unit-tests-${{ github.workflow }}-${{ github.ref }}
+  group: regression-tests-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  unit-tests:
-    name: XCTest (macOS)
+  regression-tests:
+    name: TCP Lifecycle Regressions (macOS)
     runs-on: macos-15
     timeout-minutes: 30
 
@@ -35,16 +35,17 @@ jobs:
           path: |
             ~/.swiftpm
             .build
-          key: ${{ runner.os }}-spm-tests-${{ hashFiles('Package.swift', '**/Package.resolved') }}
+          key: ${{ runner.os }}-spm-regressions-${{ hashFiles('Package.swift', '**/Package.resolved') }}
           restore-keys: |
-            ${{ runner.os }}-spm-tests-
+            ${{ runner.os }}-spm-regressions-
             ${{ runner.os }}-spm-
 
-      - name: Run unit tests
-        run: ./Scripts/run-tests.sh unit
+      - name: Run regression tests
+        run: ./Scripts/run-tests.sh regression
 
       - name: Job summary
         if: always()
         run: |
-          echo "### Unit tests" >> "$GITHUB_STEP_SUMMARY"
-          echo "Runner: \`./Scripts/run-tests.sh unit\` (policy: docs/TESTING.md)" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Regression tests" >> "$GITHUB_STEP_SUMMARY"
+          echo "Runner: \`./Scripts/run-tests.sh regression\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Coverage: real TCP handshake, accept contract, and stack restart lifecycle" >> "$GITHUB_STEP_SUMMARY"

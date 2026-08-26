@@ -91,20 +91,25 @@ Document material contract changes in `docs/ARCHITECTURE.md` and, for release re
 ## 7. How to run
 
 ```bash
-# Canonical (same as CI unit-test job)
+# Full local suite
 ./Scripts/run-tests.sh
 
-# Core regressions only
-./Scripts/run-tests.sh 'TFGlobalScheduler|TFIPStackAccept|TFIPStackLifecycle|TFTCPConnectionPublicAPI'
+# Fast unit-test gate
+./Scripts/run-tests.sh unit
 
-# Swift facade only
+# TCP handshake / lifecycle regression gate
+./Scripts/run-tests.sh regression
+
+# Custom XCTest filter (backwards-compatible)
 ./Scripts/run-tests.sh TunForgeSwiftSurface
 ```
 
 CI workflows:
 
-- **CI** — build + full `swift test` (`.github/workflows/ci.yml`)
-- **Unit Tests** — `./Scripts/run-tests.sh` (`.github/workflows/unit-tests.yml`)
+- **CI** — Debug + Release builds (`.github/workflows/ci.yml`)
+- **Lint** — clang-format + shellcheck (`.github/workflows/format-style.yml`)
+- **Unit Tests** — `./Scripts/run-tests.sh unit` (`.github/workflows/unit-tests.yml`)
+- **Regression Tests** — `./Scripts/run-tests.sh regression` (`.github/workflows/regression-tests.yml`)
 
 ---
 
@@ -114,7 +119,8 @@ CI workflows:
 - [ ] No new Swift Testing APIs in this package.
 - [ ] No second `TFGlobalScheduler` configure; lifecycle tests restore `start`.
 - [ ] Accept/inbound/close paths use `packetsQueue` / documented queues in the test body.
-- [ ] `./Scripts/run-tests.sh` passes locally (or CI green on the PR).
+- [ ] `./Scripts/run-tests.sh unit` passes locally (or Unit Tests is green on the PR).
+- [ ] Lifecycle/accept changes pass `./Scripts/run-tests.sh regression`.
 
 ---
 
@@ -122,8 +128,10 @@ CI workflows:
 
 README surfaces:
 
-- **CI** — overall build + test workflow status on `main`
+- **CI** — Debug + Release build status on `main`
+- **Lint** — Objective-C/C formatting and shell-script lint status on `main`
 - **Unit Tests** — dedicated unit-test workflow status on `main`
+- **Regression Tests** — TCP handshake and stack lifecycle regression status on `main`
 - **XCTest** — static policy badge linking here
 
 ---

@@ -1,34 +1,43 @@
-name: format
+name: Lint
 
 on:
   push:
     branches: [main, "feat-*", "hotfix*", "release/*"]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
-  group: format-${{ github.workflow }}-${{ github.ref }}
+  group: lint-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  format:
-    name: clang-format (ObjC/C)
+  lint:
+    name: Format & Shell
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install clang-format
-        run: sudo apt-get update && sudo apt-get install -y clang-format-16
+      - name: Install linters
+        run: sudo apt-get update && sudo apt-get install -y clang-format-16 shellcheck
 
       - name: Check clang-format (TunForgeCore)
         run: |
           set -euo pipefail
           find Sources/TunForgeCore -type f \( -name '*.m' -o -name '*.mm' -o -name '*.h' -o -name '*.c' -o -name '*.cpp' \) -print0 \
-            | xargs -0 clang-format-16 -i
-          if ! git diff --quiet; then
-            echo "::error::clang-format drift detected in Sources/TunForgeCore. Run clang-format locally and commit."
-            git --no-pager diff --stat
-            git --no-pager diff
-            exit 1
-          fi
-          echo "clang-format clean"
+            | xargs -0 clang-format-16 --dry-run --Werror
+
+      - name: Check shell scripts
+        run: shellcheck Scripts/*.sh
+
+      - name: Job summary
+        if: always()
+        run: |
+          echo "### Lint" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Objective-C/C: clang-format 16" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Shell: shellcheck" >> "$GITHUB_STEP_SUMMARY"

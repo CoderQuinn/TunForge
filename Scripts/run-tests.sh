@@ -1,12 +1,32 @@
 #!/usr/bin/env bash
-# Canonical unit-test entrypoint for local runs and CI.
+# Canonical XCTest entrypoint for local runs and CI.
 # Policy: see docs/TESTING.md
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-FILTER="${1:-}"
+MODE="${1:-all}"
+
+case "$MODE" in
+  all)
+    FILTER=""
+    LABEL="all XCTest suites"
+    ;;
+  unit)
+    FILTER='TFGlobalSchedulerTests|TFTCPConnectionPublicAPITests|TunForgeSwiftSurfaceTests'
+    LABEL="unit tests"
+    ;;
+  regression)
+    FILTER='TFIPStackAcceptTests|TFIPStackLifecycleTests'
+    LABEL="regression tests"
+    ;;
+  *)
+    # Backwards-compatible custom XCTest filter.
+    FILTER="$MODE"
+    LABEL="custom filter: $MODE"
+    ;;
+esac
 
 echo "==> swift --version"
 swift --version
@@ -15,9 +35,10 @@ echo "==> swift build"
 swift build
 
 if [[ -n "$FILTER" ]]; then
-  echo "==> swift test --filter ${FILTER}"
+  echo "==> swift test (${LABEL})"
+  echo "==> filter: ${FILTER}"
   swift test --filter "$FILTER"
 else
-  echo "==> swift test (TunForgeCoreTests + TunForgeTests)"
+  echo "==> swift test (${LABEL})"
   swift test
 fi
