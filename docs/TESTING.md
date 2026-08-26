@@ -111,6 +111,9 @@ CI workflows:
 - **Unit Tests** — `./Scripts/run-tests.sh unit` (`.github/workflows/unit-tests.yml`)
 - **Regression Tests** — `./Scripts/run-tests.sh regression` (`.github/workflows/regression-tests.yml`)
 
+Until the TCP lifecycle suites are available on `main`, the regression runner also executes the
+Swift facade smoke suite so the gate is never a no-op.
+
 ---
 
 ## 8. PR checklist (unit tests)
