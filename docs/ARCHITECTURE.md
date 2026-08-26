@@ -1,7 +1,7 @@
 # TunForge 契约与架构 TODO
 
-> **角色**：TUN 用户态 TCP data plane core（lwIP raw API + ObjC 语义层）  
-> **公开定位**：低层 TCP 截获核心，不负责代理、路由、策略、DNS 或 UDP proxy  
+> **角色**：TUN 用户态 TCP data plane core（lwIP raw API + ObjC 语义层）
+> **公开定位**：低层 TCP 截获核心，不负责代理、路由、策略、DNS 或 UDP proxy
 > **最后更新**：2026-07-22
 
 ---

@@ -1,8 +1,8 @@
 # TunForge 0.6 Architecture Review
 
-> **Scope**: `TunForgeCore` queue contracts, TCP accept/activate lifecycle, inbound credit, and testability  
-> **Branch context**: `feat-0.6.0` follow-up (contract hardening + regression suite)  
-> **Date**: 2026-07-22  
+> **Scope**: `TunForgeCore` queue contracts, TCP accept/activate lifecycle, inbound credit, and testability
+> **Branch context**: `feat-0.6.0` follow-up (contract hardening + regression suite)
+> **Date**: 2026-07-22
 > **Status**: P0 ownership / once-only / queue-key issues addressed in code; remaining items tracked below and in [`ARCHITECTURE.md`](./ARCHITECTURE.md)
 
 ---
@@ -250,6 +250,6 @@ Note: `TFGlobalScheduler` / `TFIPStack` are process-global. Core tests configure
 
 ## 8. References
 
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — living contract + TODO board  
-- [`README.md`](../README.md) — public integration notes  
-- [`CHANGELOG.md`](../CHANGELOG.md) — release notes  
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — living contract + TODO board
+- [`README.md`](../README.md) — public integration notes
+- [`CHANGELOG.md`](../CHANGELOG.md) — release notes
