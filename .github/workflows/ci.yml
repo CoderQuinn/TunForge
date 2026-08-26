@@ -2,23 +2,40 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main, "feat-*", "hotfix*", "release/*"]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    name: Build & Test (macOS)
+    name: Build (${{ matrix.configuration }})
     runs-on: macos-15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - configuration: Debug
+            swift_flags: ""
+          - configuration: Release
+            swift_flags: "-c release"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Select Xcode
-        uses: maxim-lobanov/setup-xcode@v1
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
-          xcode-version: '16.4'
+          xcode-version: "16.4"
 
       - name: Cache SwiftPM
         uses: actions/cache@v4
@@ -26,16 +43,26 @@ jobs:
           path: |
             ~/.swiftpm
             .build
-          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          key: ${{ runner.os }}-spm-${{ matrix.configuration }}-${{ hashFiles('Package.swift', '**/Package.resolved') }}-${{ hashFiles('.github/workflows/ci.yml') }}
           restore-keys: |
+            ${{ runner.os }}-spm-${{ matrix.configuration }}-
             ${{ runner.os }}-spm-
 
-      - name: Swift Build
-        run: |
-          swift --version
-          swift build -v --target TunForge
+      - name: Swift toolchain
+        run: swift --version
 
-      - name: Swift Test
+      - name: Build TunForgeCore
         run: |
-          swift test -v
+          swift build ${{ matrix.swift_flags }} --target TunForgeCore
 
+      - name: Build TunForge
+        run: |
+          swift build ${{ matrix.swift_flags }} --target TunForge
+
+      - name: Summarize
+        if: always()
+        run: |
+          echo "### TunForge CI" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Configuration: ${{ matrix.configuration }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Build: TunForgeCore + TunForge" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tests: enforced by the Unit Tests and Regression Tests workflows" >> "$GITHUB_STEP_SUMMARY"

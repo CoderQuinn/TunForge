@@ -1,21 +1,43 @@
-name: format
+name: Lint
 
 on:
   push:
-    branches: ["*"]
+    branches: [main, "feat-*", "hotfix*", "release/*"]
   pull_request:
-    branches: ["main"]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  format:
+  lint:
+    name: Format & Shell
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install clang-format
+      - name: Install linters
+        run: sudo apt-get update && sudo apt-get install -y clang-format-16 shellcheck
 
-        run: sudo apt-get update && sudo apt-get install -y clang-format-16
-
-      - name: Check clang-format (ObjC/C)
+      - name: Check clang-format (TunForgeCore)
         run: |
-          find Sources/TunForgeCore -type f \( -name "*.m" -o -name "*.mm" -o -name "*.h" -o -name "*.c" -o -name "*.cpp" \) -print0 | xargs -0 clang-format-16 -i
+          set -euo pipefail
+          find Sources/TunForgeCore -type f \( -name '*.m' -o -name '*.mm' -o -name '*.h' -o -name '*.c' -o -name '*.cpp' \) -print0 \
+            | xargs -0 clang-format-16 --dry-run --Werror
+
+      - name: Check shell scripts
+        run: shellcheck Scripts/*.sh
+
+      - name: Job summary
+        if: always()
+        run: |
+          echo "### Lint" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Objective-C/C: clang-format 16" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Shell: shellcheck" >> "$GITHUB_STEP_SUMMARY"

@@ -194,7 +194,7 @@ static TFIPStack *_stack;
     TF_ASSERT_ON_PACKETS_QUEUE();
     if (!pbuf)
         return;
-    
+
     u16_t len = pbuf->tot_len;
     if (len < 20 || !self.outboundHandler) {
         return;
