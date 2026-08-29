@@ -10,7 +10,6 @@
 #import "TFObjectRef.h"
 #import "TFQueueHelpers.h"
 #import "TFTCPConnection.h"
-#import "TFTCPConnectionTestingAPI.h"
 #import "TFTunForgeLog.h"
 #import "TFWeakifyStrongify.h"
 
@@ -386,17 +385,6 @@ static err_t tunforge_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
     }];
 
     return ERR_OK;
-}
-
-#pragma mark - Unit test hooks
-
-uint16_t TFIPStackTestingListenPort(void) {
-    TF_ASSERT_ON_PACKETS_QUEUE();
-    TFIPStack *stack = [TFIPStack defaultStack];
-    if (!stack.listener) {
-        return 0;
-    }
-    return stack.listener->local_port;
 }
 
 @end

@@ -23,7 +23,6 @@
  */
 
 #import "TFTCPConnection.h"
-#import "TFTCPConnectionTestingAPI.h"
 #import "TFGlobalScheduler.h"
 #import "TFObjectRef.h"
 #import "TFQueueHelpers.h"
@@ -851,65 +850,3 @@ static void tf_tcp_err(void *arg, err_t err) {
 }
 
 @end
-
-#pragma mark - Unit test hooks (see TFTCPConnectionTestingAPI.h)
-
-/// Same compilation unit as the class extension; avoids a separate test-only category.
-static struct tcp_pcb *tftcp_connection_pcb_for_testing(TFTCPConnection *conn) {
-    return conn.pcb;
-}
-
-err_t TFTCPConnectionTestingDeliverInboundPbuf(TFTCPConnection *conn, struct pbuf *p) {
-    return TFTCPConnectionTestingDeliverInboundWithErr(conn, p, ERR_OK);
-}
-
-err_t TFTCPConnectionTestingDeliverInboundWithErr(TFTCPConnection *conn,
-                                                  struct pbuf *p,
-                                                  err_t lwerr) {
-    TF_ASSERT_ON_PACKETS_QUEUE();
-    if (!conn) {
-        return ERR_ARG;
-    }
-    struct tcp_pcb *pcb = tftcp_connection_pcb_for_testing(conn);
-    if (!pcb || !conn.alive) {
-        return ERR_ARG;
-    }
-    return tftcp_connection_process_app_recv(conn, pcb, p, lwerr);
-}
-
-void TFTCPConnectionTestingAccelerateNewStateTimeout(TFTCPConnection *conn) {
-    TF_ASSERT_ON_PACKETS_QUEUE();
-    if (!conn) {
-        return;
-    }
-    // kTCPNewStateRejectTimeoutMs is 10000; push start far enough into the past.
-    conn.newStateStartMs = sys_now() - 20000u;
-}
-
-err_t TFTCPConnectionTestingTriggerPoll(TFTCPConnection *conn) {
-    TF_ASSERT_ON_PACKETS_QUEUE();
-    if (!conn) {
-        return ERR_ARG;
-    }
-    struct tcp_pcb *pcb = tftcp_connection_pcb_for_testing(conn);
-    if (!pcb) {
-        return ERR_ARG;
-    }
-    return tf_tcp_poll((__bridge void *)conn.pcbRef, pcb);
-}
-
-uint64_t TFTCPConnectionTestingInflightAckBytes(TFTCPConnection *conn) {
-    TF_ASSERT_ON_PACKETS_QUEUE();
-    if (!conn) {
-        return 0;
-    }
-    return conn.inflightAckBytes;
-}
-
-BOOL TFTCPConnectionTestingHasPCB(TFTCPConnection *conn) {
-    TF_ASSERT_ON_PACKETS_QUEUE();
-    if (!conn) {
-        return NO;
-    }
-    return tftcp_connection_pcb_for_testing(conn) != NULL;
-}
