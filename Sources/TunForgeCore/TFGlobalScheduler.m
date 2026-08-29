@@ -50,6 +50,13 @@ static TFGlobalScheduler *_instance;
 /// Configure queues ONCE before first acquire.
 - (void)configureWithPacketsQueue:(dispatch_queue_t)packetsQueue
                  connectionsQueue:(dispatch_queue_t)connectionsQueue {
+    if (!packetsQueue) {
+        [NSException raise:NSInvalidArgumentException format:@"packetsQueue must not be nil"];
+    }
+    if (!connectionsQueue) {
+        [NSException raise:NSInvalidArgumentException format:@"connectionsQueue must not be nil"];
+    }
+
     os_unfair_lock_lock(&_configLock);
 
     @try {
