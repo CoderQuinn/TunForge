@@ -112,7 +112,7 @@ TUN device
 - [x] **统一 accept / `markActive()` 双阶段语义**：`handler(YES)` 定义为 ownership hand-off（不激活），`handler(NO)` reject/abort，真正激活由 `markActive()` 完成，未激活会在 New-state timeout 后 abort；`TFTCPAcceptHandler` / 协议注释 / `markActive` 注释 / README 已统一。
 - [x] **New 态自持有 / accept drop 不泄漏 backlog**：`TFTCPConnection` 在 New 态通过 `acceptPhaseRetain` 自持有，直到 `markActive` / `terminate`；`tf_tcp_poll` 在 ObjC wrapper 已消失时 abort PCB。回归：`testAccept_hostDropsConnectionWithoutHandler_newRetainKeepsAliveUntilTimeout`。
 - [x] **zero-copy completion once-guard**：`onReadableBytes` completion 重复调用会 warn 并忽略，避免 double `pbuf_free`。
-- [ ] 给所有 mutating public API 补齐“必须在 `packetsQueue` 调用”的头文件注释，避免 Swift/host 侧误以为 API 是线程安全入口。
+- [x] 给所有 mutating public API 补齐“必须在 `packetsQueue` 调用”的头文件注释，明确 API 不会自动 hop，避免 Swift/host 侧误以为它们是线程安全入口。
 - [ ] 固化 zero-copy receive 契约文档：何时 `acknowledgeDeliveredBytes`、completion 与 ACK 顺序、欠 ACK 行为。
 - [ ] 明确 `TFGlobalScheduler` 配置生命周期：配置一次、不可重配、测试/多 suite 场景如何隔离。
 - [ ] **Release 构建队列亲和**：`TF_ASSERT_ON_PACKETS_QUEUE()` 目前仅 DEBUG 生效；需决定是否在 Release 保留 assert / 降级为日志。

@@ -56,22 +56,27 @@ typedef void (^TFTCPAcceptHandler)(BOOL accept);
 /// - TFIPStack is NOT a per-instance TCP/IP stack.
 /// - Multiple active stacks are forbidden.
 /// - Violating this is a programmer error.
+/// - Mutable properties and mutating methods do not hop queues automatically; the host must
+///   access them on `TFGlobalScheduler.packetsQueue`.
 @interface TFIPStack : NSObject
 
 + (instancetype)defaultStack;
 
 - (instancetype)init NS_UNAVAILABLE;
 
-/// Outbound raw IP packet handler.
+/// Outbound raw IP packet handler. Set on `TFGlobalScheduler.packetsQueue`.
 @property (nullable, nonatomic, copy) OutboundHandler outboundHandler;
 
+/// Stack-level accept delegate. Set on `TFGlobalScheduler.packetsQueue`.
 @property (nullable, nonatomic, weak) id<TFIPStackDelegate> delegate;
 
+/// Starts the global lwIP runtime. Must run on `TFGlobalScheduler.packetsQueue`.
 - (void)start;
 
+/// Stops the global lwIP runtime. Must run on `TFGlobalScheduler.packetsQueue`.
 - (void)stop;
 
-/// Inject a raw IP packet into lwIP.
+/// Injects a raw IP packet into lwIP. Must run on `TFGlobalScheduler.packetsQueue`.
 - (void)inputPacket:(nonnull NSData *)packet;
 
 @end
