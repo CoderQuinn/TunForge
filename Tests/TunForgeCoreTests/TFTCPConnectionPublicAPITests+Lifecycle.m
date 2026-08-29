@@ -81,6 +81,38 @@
     [self waitForExpectationsWithTimeout:3 handler:nil];
 }
 
+- (void)testResetError_terminatesOnceAndRepeatedTeardownIsNoOp {
+    XCTestExpectation *exp = [self expectationWithDescription:@"reset"];
+    exp.assertForOverFulfill = YES;
+    __block NSInteger terminationCount = 0;
+    __block TFTCPConnection *connRef = nil;
+
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        struct tcp_pcb *pcb = TFTCPConnectionTestingCreateSyntheticEstablishedPCB();
+        XCTAssertNotEqual(pcb, NULL);
+        connRef = [[TFTCPConnection alloc] initWithTCPPcb:pcb];
+        [connRef markActive];
+        connRef.onTerminated = ^(TFTCPConnection *c, TFTCPConnectionTerminationReason reason) {
+            XCTAssertTrue(c == connRef);
+            terminationCount++;
+            XCTAssertEqual(reason, TFTCPConnectionTerminationReasonReset);
+            [exp fulfill];
+        };
+
+        XCTAssertEqual(TFTCPConnectionTestingTriggerError(connRef, ERR_RST), ERR_OK);
+        XCTAssertFalse(connRef.alive);
+        XCTAssertFalse(TFTCPConnectionTestingHasPCB(connRef));
+
+        [connRef abort];
+        [connRef gracefulClose];
+        [connRef shutdownWrite];
+        XCTAssertEqual(TFTCPConnectionTestingTriggerError(connRef, ERR_RST), ERR_ARG);
+    }];
+
+    [self waitForExpectationsWithTimeout:3 handler:nil];
+    XCTAssertEqual(terminationCount, 1);
+}
+
 - (void)testOnActivated_firesOnceAfterMarkActive {
     XCTestExpectation *exp = [self expectationWithDescription:@"activated"];
     __block NSInteger fireCount = 0;
