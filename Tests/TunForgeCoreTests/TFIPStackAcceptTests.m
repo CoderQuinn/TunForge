@@ -11,6 +11,8 @@
 #import "TFTCPConnectionTestEnvironment.h"
 #import "TFIPPacketTestHelpers.h"
 
+#include "lwip/opt.h"
+
 enum {
     kTFIPTCPFlagFIN = 0x01,
     kTFIPTCPFlagSYN = 0x02,
@@ -27,6 +29,13 @@ static uint32_t TFIPAddr(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
 @property (nonatomic, copy, nullable) void (^onAccept)(TFTCPConnection *connection, TFTCPAcceptHandler handler);
 @property (nonatomic, assign) BOOL sawConnectionsQueue;
 @property (nonatomic, assign) BOOL sawPacketsQueue;
+@end
+
+@interface TFIPStackAcceptWeakConnectionBox : NSObject
+@property (nonatomic, weak, nullable) TFTCPConnection *connection;
+@end
+
+@implementation TFIPStackAcceptWeakConnectionBox
 @end
 
 @implementation TFIPStackAcceptTestDelegate
@@ -92,8 +101,11 @@ static uint32_t TFIPAddr(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
 }
 
 /// Drive SYN → SYN/ACK → ACK through the default stack; fulfill when accept fires.
-- (void)driveHandshakeExpectingAccept:(void (^)(TFTCPConnection *conn, TFTCPAcceptHandler handler))onAccept
-                          expectation:(XCTestExpectation *)exp {
+- (void)driveHandshakeFromPeerPort:(uint16_t)peerPort
+                           peerISN:(uint32_t)peerISN
+                   expectingAccept:(void (^)(TFTCPConnection *conn,
+                                              TFTCPAcceptHandler handler))onAccept
+                       expectation:(XCTestExpectation *)exp {
     self.acceptDelegate.onAccept = ^(TFTCPConnection *connection, TFTCPAcceptHandler handler) {
         onAccept(connection, handler);
         [exp fulfill];
@@ -101,10 +113,9 @@ static uint32_t TFIPAddr(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
 
     const uint32_t peer = TFIPAddr(198, 18, 0, 2);
     const uint32_t local = TFIPAddr(198, 18, 0, 1);
-    const uint16_t peerPort = 45000;
-    const uint32_t peerISN = 1000;
 
     __block uint16_t listenPort = 0;
+    [self clearOutboundPackets];
     [TFGlobalScheduler.shared packetsPerformSync:^{
         listenPort = TFIPStackTestingListenPort();
         XCTAssertGreaterThan(listenPort, 0);
@@ -120,7 +131,9 @@ static uint32_t TFIPAddr(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
     for (int i = 0; i < 20 && !synAck; i++) {
         for (NSData *p in [self outboundPacketsSnapshot]) {
             uint8_t flags = 0;
-            if (TFIPPacketParseTCP(p, NULL, NULL, NULL, NULL, NULL, NULL, &flags) &&
+            uint16_t destinationPort = 0;
+            if (TFIPPacketParseTCP(p, NULL, NULL, NULL, &destinationPort, NULL, NULL, &flags) &&
+                destinationPort == peerPort &&
                 (flags & kTFIPTCPFlagSYN) && (flags & kTFIPTCPFlagACK)) {
                 synAck = p;
                 break;
@@ -135,8 +148,11 @@ static uint32_t TFIPAddr(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
     uint32_t synAckSeq = 0;
     uint32_t synAckAck = 0;
     uint16_t synAckSrcPort = 0;
-    XCTAssertTrue(TFIPPacketParseTCP(synAck, NULL, NULL, &synAckSrcPort, NULL, &synAckSeq, &synAckAck, NULL));
+    uint16_t synAckDstPort = 0;
+    XCTAssertTrue(TFIPPacketParseTCP(synAck, NULL, NULL, &synAckSrcPort, &synAckDstPort,
+                                     &synAckSeq, &synAckAck, NULL));
     XCTAssertEqual(synAckSrcPort, listenPort);
+    XCTAssertEqual(synAckDstPort, peerPort);
     XCTAssertEqual(synAckAck, peerISN + 1);
 
     [TFGlobalScheduler.shared packetsPerformSync:^{
@@ -144,6 +160,15 @@ static uint32_t TFIPAddr(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
                                                synAckSeq + 1, kTFIPTCPFlagACK, 65535);
         [[TFIPStack defaultStack] inputPacket:ack];
     }];
+}
+
+- (void)driveHandshakeExpectingAccept:(void (^)(TFTCPConnection *conn,
+                                                 TFTCPAcceptHandler handler))onAccept
+                          expectation:(XCTestExpectation *)exp {
+    [self driveHandshakeFromPeerPort:45000
+                             peerISN:1000
+                     expectingAccept:onAccept
+                         expectation:exp];
 }
 
 - (void)testAccept_delegateInvokedOnConnectionsQueue {
@@ -328,6 +353,102 @@ static uint32_t TFIPAddr(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
     }];
 
     [self waitForExpectations:@[ termExp ] timeout:3];
+}
+
+- (void)testAccept_droppedConnectionsTimeoutWithoutShrinkingBacklogUnderLoad {
+    const NSUInteger backlogCapacity = (NSUInteger)TCP_DEFAULT_LISTEN_BACKLOG;
+    const uint16_t firstPeerPort = 46000;
+    const uint16_t overflowPeerPort = (uint16_t)(firstPeerPort + backlogCapacity);
+    NSMutableArray<TFIPStackAcceptWeakConnectionBox *> *connectionBoxes =
+        [NSMutableArray arrayWithCapacity:backlogCapacity];
+    NSMutableArray<XCTestExpectation *> *terminationExpectations =
+        [NSMutableArray arrayWithCapacity:backlogCapacity];
+
+    // Fill the listener's delayed-accept backlog with host-dropped New connections.
+    // The only strong ownership after each callback returns must be the connection's
+    // New-state self-retain; no handler or markActive call is made.
+    for (NSUInteger index = 0; index < backlogCapacity; index++) {
+        XCTestExpectation *acceptExp =
+            [self expectationWithDescription:[NSString stringWithFormat:@"accept-%lu",
+                                                                          (unsigned long)index]];
+        XCTestExpectation *termExp =
+            [self expectationWithDescription:[NSString stringWithFormat:@"timeout-%lu",
+                                                                          (unsigned long)index]];
+        [terminationExpectations addObject:termExp];
+
+        TFIPStackAcceptWeakConnectionBox *box = [[TFIPStackAcceptWeakConnectionBox alloc] init];
+        [connectionBoxes addObject:box];
+        uint16_t peerPort = (uint16_t)(firstPeerPort + index);
+        uint32_t peerISN = 1000u + (uint32_t)(index * 4u);
+
+        [self driveHandshakeFromPeerPort:peerPort
+                                 peerISN:peerISN
+                         expectingAccept:^(TFTCPConnection *conn, TFTCPAcceptHandler handler) {
+                             (void)handler;
+                             box.connection = conn;
+                             conn.onTerminated = ^(TFTCPConnection *c,
+                                                   TFTCPConnectionTerminationReason reason) {
+                                 (void)c;
+                                 XCTAssertEqual(reason, TFTCPConnectionTerminationReasonAbort);
+                                 [termExp fulfill];
+                             };
+                         }
+                             expectation:acceptExp];
+        [self waitForExpectations:@[ acceptExp ] timeout:3];
+        XCTAssertNotNil(box.connection,
+                        @"New-state self-retain must survive host drop at index %lu",
+                        (unsigned long)index);
+    }
+
+    // Prove the test actually reached the configured backlog limit: one more SYN must
+    // not allocate a PCB or emit SYN-ACK while all delayed accepts remain outstanding.
+    const uint32_t peer = TFIPAddr(198, 18, 0, 2);
+    const uint32_t local = TFIPAddr(198, 18, 0, 1);
+    const uint32_t overflowPeerISN = 9000;
+    __block uint16_t listenPort = 0;
+    [self clearOutboundPackets];
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        listenPort = TFIPStackTestingListenPort();
+        NSData *syn = TFIPPacketMakeTCPSegment(peer, local, overflowPeerPort, listenPort,
+                                               overflowPeerISN, 0, kTFIPTCPFlagSYN, 65535);
+        [[TFIPStack defaultStack] inputPacket:syn];
+    }];
+
+    BOOL emittedOverflowSynAck = NO;
+    for (NSData *packet in [self outboundPacketsSnapshot]) {
+        uint16_t destinationPort = 0;
+        uint8_t flags = 0;
+        if (TFIPPacketParseTCP(packet, NULL, NULL, NULL, &destinationPort, NULL, NULL, &flags) &&
+            destinationPort == overflowPeerPort && (flags & kTFIPTCPFlagSYN) &&
+            (flags & kTFIPTCPFlagACK)) {
+            emittedOverflowSynAck = YES;
+            break;
+        }
+    }
+    XCTAssertFalse(emittedOverflowSynAck, @"backlog must be full before timeout reclamation");
+
+    // Accelerate every New-state timeout. tcp_abort must return every delayed-accept
+    // slot, otherwise the final handshake below will still be rejected as backlog-full.
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        for (TFIPStackAcceptWeakConnectionBox *box in connectionBoxes) {
+            TFTCPConnection *connection = box.connection;
+            XCTAssertNotNil(connection);
+            TFTCPConnectionTestingAccelerateNewStateTimeout(connection);
+            XCTAssertEqual(TFTCPConnectionTestingTriggerPoll(connection), ERR_OK);
+        }
+    }];
+    [self waitForExpectations:terminationExpectations timeout:10];
+
+    XCTestExpectation *recoveredAcceptExp =
+        [self expectationWithDescription:@"accept-after-backlog-timeout"];
+    [self driveHandshakeFromPeerPort:overflowPeerPort
+                             peerISN:overflowPeerISN
+                     expectingAccept:^(TFTCPConnection *conn, TFTCPAcceptHandler handler) {
+                         XCTAssertTrue(conn.alive);
+                         handler(NO);
+                     }
+                         expectation:recoveredAcceptExp];
+    [self waitForExpectations:@[ recoveredAcceptExp ] timeout:3];
 }
 
 - (void)testAccept_nilDelegate_abortsWithoutNotifying {
