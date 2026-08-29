@@ -12,6 +12,10 @@
 @interface TFGlobalSchedulerTests : XCTestCase
 @end
 
+@interface TFGlobalScheduler (TunForgeCoreTests)
+- (instancetype)initPrivate;
+@end
+
 @implementation TFGlobalSchedulerTests
 
 - (void)setUp {
@@ -78,6 +82,50 @@
         XCTAssertEqual(asyncSaw, 1);
         XCTAssertEqual(order, 2);
     }];
+}
+
+- (void)testConfigure_nilPacketsQueue_throwsWithoutLeavingPartialConfiguration {
+    TFGlobalScheduler *scheduler = [[TFGlobalScheduler alloc] initPrivate];
+    dispatch_queue_t connectionsQueue =
+        dispatch_queue_create("com.tunforge.tests.validation.connections", DISPATCH_QUEUE_SERIAL);
+    dispatch_queue_t nilQueue = NULL;
+
+    XCTAssertThrowsSpecificNamed([scheduler configureWithPacketsQueue:nilQueue
+                                                     connectionsQueue:connectionsQueue],
+                                 NSException,
+                                 NSInvalidArgumentException);
+
+    dispatch_queue_t packetsQueue =
+        dispatch_queue_create("com.tunforge.tests.validation.packets", DISPATCH_QUEUE_SERIAL);
+    [scheduler configureWithPacketsQueue:packetsQueue connectionsQueue:connectionsQueue];
+
+    __block BOOL ranOnPacketsQueue = NO;
+    [scheduler packetsPerformSync:^{
+        ranOnPacketsQueue = TFIsOnQueue(TFGetPacketsQueueKey());
+    }];
+    XCTAssertTrue(ranOnPacketsQueue);
+}
+
+- (void)testConfigure_nilConnectionsQueue_throwsWithoutLeavingPartialConfiguration {
+    TFGlobalScheduler *scheduler = [[TFGlobalScheduler alloc] initPrivate];
+    dispatch_queue_t packetsQueue =
+        dispatch_queue_create("com.tunforge.tests.validation.packets", DISPATCH_QUEUE_SERIAL);
+    dispatch_queue_t nilQueue = NULL;
+
+    XCTAssertThrowsSpecificNamed([scheduler configureWithPacketsQueue:packetsQueue
+                                                     connectionsQueue:nilQueue],
+                                 NSException,
+                                 NSInvalidArgumentException);
+
+    dispatch_queue_t connectionsQueue =
+        dispatch_queue_create("com.tunforge.tests.validation.connections", DISPATCH_QUEUE_SERIAL);
+    [scheduler configureWithPacketsQueue:packetsQueue connectionsQueue:connectionsQueue];
+
+    __block BOOL ranOnConnectionsQueue = NO;
+    [scheduler connectionsPerformSync:^{
+        ranOnConnectionsQueue = TFIsOnQueue(TFGetConnectionsQueueKey());
+    }];
+    XCTAssertTrue(ranOnConnectionsQueue);
 }
 
 @end
