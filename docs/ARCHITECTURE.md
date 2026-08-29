@@ -154,5 +154,5 @@ TUN device
 - [ARCHITECTURE-REVIEW-0.6](./ARCHITECTURE-REVIEW-0.6.md)
 - [README](../README.md)
 - [ROADMAP](../ROADMAP.md)
-- [QuantumLink Architecture-Evolution](../../QuantumLink/docs/Architecture-Evolution.md)
-- [NetForge ARCHITECTURE.md](../NetForge/docs/ARCHITECTURE.md)
+- [QuantumLink Architecture-Evolution](https://github.com/CoderQuinn/QuantumLink/blob/main/docs/Architecture-Evolution.md)
+- [NetForge](https://github.com/CoderQuinn/NetForge)
