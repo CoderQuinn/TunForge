@@ -32,17 +32,34 @@ NSData *TFIPPacketMakeTCPSegment(uint32_t srcAddr,
                                  uint32_t ack,
                                  uint8_t flags,
                                  uint16_t window) {
-    uint8_t buf[40];
-    memset(buf, 0, sizeof(buf));
+    return TFIPPacketMakeTCPSegmentWithPayload(
+        srcAddr, dstAddr, srcPort, dstPort, seq, ack, flags, window, [NSData data]);
+}
+
+NSData *TFIPPacketMakeTCPSegmentWithPayload(uint32_t srcAddr,
+                                            uint32_t dstAddr,
+                                            uint16_t srcPort,
+                                            uint16_t dstPort,
+                                            uint32_t seq,
+                                            uint32_t ack,
+                                            uint8_t flags,
+                                            uint16_t window,
+                                            NSData *payload) {
+    NSCParameterAssert(payload);
+    NSCAssert(payload.length <= UINT16_MAX - 40, @"IPv4/TCP test payload is too large");
+
+    const NSUInteger tcpLength = 20 + payload.length;
+    const uint16_t totalLen = (uint16_t)(20 + tcpLength);
+    NSMutableData *packet = [NSMutableData dataWithLength:totalLen];
+    uint8_t *buf = packet.mutableBytes;
 
     // IPv4
     buf[0] = 0x45;
     buf[1] = 0;
-    uint16_t totalLen = 40;
     buf[2] = (uint8_t)(totalLen >> 8);
     buf[3] = (uint8_t)(totalLen & 0xff);
-    buf[8] = 64;  // TTL
-    buf[9] = 6;   // TCP
+    buf[8] = 64; // TTL
+    buf[9] = 6;  // TCP
     uint32_t srcN = htonl(srcAddr);
     uint32_t dstN = htonl(dstAddr);
     memcpy(buf + 12, &srcN, 4);
@@ -65,20 +82,25 @@ NSData *TFIPPacketMakeTCPSegment(uint32_t srcAddr,
     buf[34] = (uint8_t)(window >> 8);
     buf[35] = (uint8_t)(window & 0xff);
 
+    if (payload.length > 0) {
+        memcpy(buf + 40, payload.bytes, payload.length);
+    }
+
     // TCP checksum over pseudo-header + TCP
-    uint8_t pseudo[12 + 20];
+    NSMutableData *pseudoData = [NSMutableData dataWithLength:12 + tcpLength];
+    uint8_t *pseudo = pseudoData.mutableBytes;
     memcpy(pseudo, &srcN, 4);
     memcpy(pseudo + 4, &dstN, 4);
     pseudo[8] = 0;
     pseudo[9] = 6;
-    pseudo[10] = 0;
-    pseudo[11] = 20;
-    memcpy(pseudo + 12, buf + 20, 20);
-    uint16_t tcpCsum = tf_checksum(pseudo, sizeof(pseudo));
+    pseudo[10] = (uint8_t)(tcpLength >> 8);
+    pseudo[11] = (uint8_t)(tcpLength & 0xff);
+    memcpy(pseudo + 12, buf + 20, tcpLength);
+    uint16_t tcpCsum = tf_checksum(pseudo, pseudoData.length);
     buf[36] = (uint8_t)(tcpCsum >> 8);
     buf[37] = (uint8_t)(tcpCsum & 0xff);
 
-    return [NSData dataWithBytes:buf length:sizeof(buf)];
+    return packet;
 }
 
 BOOL TFIPPacketParseTCP(NSData *packet,

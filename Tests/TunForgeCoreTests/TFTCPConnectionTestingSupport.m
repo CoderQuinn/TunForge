@@ -142,6 +142,21 @@ err_t TFTCPConnectionTestingTriggerError(TFTCPConnection *conn, err_t lwerr) {
     return ERR_OK;
 }
 
+NSUInteger TFTCPConnectionTestingRefusedDataLength(TFTCPConnection *conn) {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+    struct tcp_pcb *pcb = conn ? conn.pcb : NULL;
+    return (pcb && pcb->refused_data) ? pcb->refused_data->tot_len : 0;
+}
+
+err_t TFTCPConnectionTestingRetryRefusedData(TFTCPConnection *conn) {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+    struct tcp_pcb *pcb = conn ? conn.pcb : NULL;
+    if (!pcb || !pcb->refused_data) {
+        return ERR_ARG;
+    }
+    return tcp_process_refused_data(pcb);
+}
+
 uint64_t TFTCPConnectionTestingInflightAckBytes(TFTCPConnection *conn) {
     TF_ASSERT_ON_PACKETS_QUEUE();
     return conn ? conn.inflightAckBytes : 0;

@@ -18,6 +18,18 @@ FOUNDATION_EXPORT NSData *TFIPPacketMakeTCPSegment(uint32_t srcAddr,
                                                    uint8_t flags,
                                                    uint16_t window);
 
+/// Build a raw IPv4+TCP segment with payload (20+20 byte headers, no options).
+/// Addresses/ports are in host order.
+FOUNDATION_EXPORT NSData *TFIPPacketMakeTCPSegmentWithPayload(uint32_t srcAddr,
+                                                              uint32_t dstAddr,
+                                                              uint16_t srcPort,
+                                                              uint16_t dstPort,
+                                                              uint32_t seq,
+                                                              uint32_t ack,
+                                                              uint8_t flags,
+                                                              uint16_t window,
+                                                              NSData *payload);
+
 /// Parse IPv4+TCP header fields from a raw packet (host order). Returns NO if too short.
 FOUNDATION_EXPORT BOOL TFIPPacketParseTCP(NSData *packet,
                                           uint32_t *_Nullable srcAddr,

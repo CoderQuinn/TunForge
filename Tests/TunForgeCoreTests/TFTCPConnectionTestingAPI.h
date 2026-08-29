@@ -39,6 +39,14 @@ FOUNDATION_EXPORT err_t TFTCPConnectionTestingTriggerPoll(TFTCPConnection *_Nonn
 FOUNDATION_EXPORT err_t TFTCPConnectionTestingTriggerError(TFTCPConnection *_Nonnull conn,
                                                            err_t lwerr);
 
+/// Bytes currently retained by lwIP as application-refused inbound data.
+/// Must run on `packetsQueue`.
+FOUNDATION_EXPORT NSUInteger
+TFTCPConnectionTestingRefusedDataLength(TFTCPConnection *_Nonnull conn);
+
+/// Invokes lwIP's real refused-data retry path. Must run on `packetsQueue`.
+FOUNDATION_EXPORT err_t TFTCPConnectionTestingRetryRefusedData(TFTCPConnection *_Nonnull conn);
+
 /// Current zero-copy / compatibility-path inflight ACK counter. Must run on `packetsQueue`.
 FOUNDATION_EXPORT uint64_t TFTCPConnectionTestingInflightAckBytes(TFTCPConnection *_Nonnull conn);
 
