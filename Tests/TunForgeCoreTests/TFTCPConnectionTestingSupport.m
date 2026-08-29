@@ -6,6 +6,7 @@
 #import "TFTCPConnectionTestingAPI.h"
 
 #import "TFIPStack.h"
+#import "TFObjectRef.h"
 #import "TFQueueHelpers.h"
 #import "TFTCPConnection.h"
 
@@ -104,6 +105,41 @@ err_t TFTCPConnectionTestingTriggerPoll(TFTCPConnection *conn) {
         return ERR_ARG;
     }
     return pcb->poll(pcb->callback_arg, pcb);
+}
+
+err_t TFTCPConnectionTestingTriggerError(TFTCPConnection *conn, err_t lwerr) {
+    TF_ASSERT_ON_PACKETS_QUEUE();
+    if (!conn) {
+        return ERR_ARG;
+    }
+
+    struct tcp_pcb *pcb = conn.pcb;
+    if (!pcb || !pcb->errf) {
+        return ERR_ARG;
+    }
+
+    tcp_err_fn errCallback = pcb->errf;
+    void *callbackArg = pcb->callback_arg;
+    void *retainedExtArg = NULL;
+
+#if LWIP_TCP_PCB_NUM_EXT_ARGS
+    retainedExtArg = tcp_ext_arg_get(pcb, TUNFORGE_TCP_EXTARG_ID);
+    tcp_ext_arg_set_callbacks(pcb, TUNFORGE_TCP_EXTARG_ID, NULL);
+    tcp_ext_arg_set(pcb, TUNFORGE_TCP_EXTARG_ID, NULL);
+#endif
+
+    // lwIP error callbacks receive no PCB because the PCB has already been freed. Detach the
+    // callback first so tcp_abort performs only the normal list/resource cleanup, then invoke
+    // the production-registered callback with the requested synthetic error.
+    tcp_err(pcb, NULL);
+    tcp_arg(pcb, NULL);
+    tcp_abort(pcb);
+    errCallback(callbackArg, lwerr);
+
+    if (retainedExtArg) {
+        TFObjectRefRelease(retainedExtArg);
+    }
+    return ERR_OK;
 }
 
 uint64_t TFTCPConnectionTestingInflightAckBytes(TFTCPConnection *conn) {

@@ -34,6 +34,11 @@ FOUNDATION_EXPORT void TFTCPConnectionTestingAccelerateNewStateTimeout(
 /// Invokes the connection's registered lwIP poll callback once. Must run on `packetsQueue`.
 FOUNDATION_EXPORT err_t TFTCPConnectionTestingTriggerPoll(TFTCPConnection *_Nonnull conn);
 
+/// Frees the synthetic PCB as lwIP would before invoking its registered error callback.
+/// Must run on `packetsQueue`.
+FOUNDATION_EXPORT err_t TFTCPConnectionTestingTriggerError(TFTCPConnection *_Nonnull conn,
+                                                           err_t lwerr);
+
 /// Current zero-copy / compatibility-path inflight ACK counter. Must run on `packetsQueue`.
 FOUNDATION_EXPORT uint64_t TFTCPConnectionTestingInflightAckBytes(TFTCPConnection *_Nonnull conn);
 
