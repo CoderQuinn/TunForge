@@ -20,12 +20,12 @@ FOUNDATION_EXPORT NSData *TFIPPacketMakeTCPSegment(uint32_t srcAddr,
 
 /// Parse IPv4+TCP header fields from a raw packet (host order). Returns NO if too short.
 FOUNDATION_EXPORT BOOL TFIPPacketParseTCP(NSData *packet,
-                                          uint32_t *srcAddr,
-                                          uint32_t *dstAddr,
-                                          uint16_t *srcPort,
-                                          uint16_t *dstPort,
-                                          uint32_t *seq,
-                                          uint32_t *ack,
-                                          uint8_t *flags);
+                                          uint32_t *_Nullable srcAddr,
+                                          uint32_t *_Nullable dstAddr,
+                                          uint16_t *_Nullable srcPort,
+                                          uint16_t *_Nullable dstPort,
+                                          uint32_t *_Nullable seq,
+                                          uint32_t *_Nullable ack,
+                                          uint8_t *_Nullable flags);
 
 NS_ASSUME_NONNULL_END
