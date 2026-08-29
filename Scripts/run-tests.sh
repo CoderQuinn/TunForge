@@ -19,7 +19,7 @@ case "$MODE" in
     ;;
   regression)
     # Keep this gate non-empty before the TCP lifecycle suites land on main.
-    FILTER='TFIPStackAcceptTests|TFIPStackLifecycleTests|TunForgeSwiftSurfaceTests'
+    FILTER='TFIPStackAcceptTests|TFIPStackLifecycleTests|TunForgeLwIPRuntimeTests|TunForgeSwiftSurfaceTests'
     LABEL="regression tests"
     ;;
   *)

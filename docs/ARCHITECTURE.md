@@ -2,7 +2,7 @@
 
 > **角色**：TUN 用户态 TCP data plane core（lwIP raw API + ObjC 语义层）
 > **公开定位**：低层 TCP 截获核心，不负责代理、路由、策略、DNS 或 UDP proxy
-> **最后更新**：2026-07-22
+> **最后更新**：2026-08-29
 
 ---
 
@@ -15,7 +15,7 @@ Host / application layer
         ▼
 TunForge
   TunForge (Swift facade)
-  TunForgeCore (ObjC semantic core)
+  TunForgeCore (neutral runtime + ObjC TCP semantic adapter)
   Lwip (C TCP/IP engine)
         │
         ▼
@@ -25,7 +25,7 @@ TUN device
 | 层 | 责任 | 不拥有 |
 |----|------|--------|
 | `Lwip` | TCP/IP engine、pbuf、raw TCP callback | Objective-C lifecycle policy |
-| `TunForgeCore` | `TFIPStack`、`TFTCPConnection`、队列契约、TCP 生命周期和 backpressure | 代理协议、分流策略、DNS/FakeIP |
+| `TunForgeCore` | `TunForgeLwIPRuntime` 的 init/netif/timer/raw I/O/serialization；`TFIPStack` + `TFTCPConnection` 的 TCP 生命周期和 backpressure | 代理协议、分流策略、socket、UDP session、tunnel state、DNS/FakeIP |
 | `TunForge` | Swift-friendly aliases / convenience API | 新语义、新状态机 |
 | Host | TUN I/O、executor 注入、代理/路由/策略、UDP 处理 | lwIP 内部状态 |
 
@@ -38,7 +38,7 @@ TUN device
 ### `packetsQueue`
 
 - 由 host 在首次使用 `TFGlobalScheduler` 前注入，之后冻结。
-- 严格串行；所有 lwIP 访问、`TFIPStack.start/stop/inputPacket`、`TFTCPConnection` 状态修改都必须在此队列执行。
+- 严格串行；所有 lwIP 访问、`TunForgeLwIPRuntime` / `TFIPStack` lifecycle 与 input、`TFTCPConnection` 状态修改都必须在此队列执行。
 - `TF_ASSERT_ON_PACKETS_QUEUE()` 是契约断言，不是普通调试辅助。违反它代表调用方或内部 hop 设计错误。
 
 ### `connectionsQueue`
@@ -58,12 +58,21 @@ TUN device
 
 ## 3. API 契约
 
+### `TunForgeLwIPRuntime`
+
+- 唯一职责是 process-global `lwip_init`、单 netif、timer、raw packet input/output 与串行 executor façade。
+- `performSync` / `performAsync` 可从任意队列调用；`start` / `stop` / `inputPacket` 与 mutable property 必须在该串行域内调用，API 不自动 hop。
+- 公开类型不暴露 `netif`、`pbuf`、PCB 等 lwIP C struct。
+- runtime 不拥有 policy、socket、UDP session、tunnel state、DNS 或产品配置。
+- lifecycle owner 必须唯一：使用兼容 `TFIPStack` 的 host 只能经 adapter 启停，不得独立启停底层 runtime。
+- direct runtime start/stop 不安装 TCP listener；`TunForgeLwIPRuntimeTests` 覆盖 x10 重复启停与嵌套串行化。
+
 ### `TFIPStack`
 
-- `TFIPStack` 是全局 lwIP runtime 的 facade，不是可多实例化的 stack。
-- `TFGlobalScheduler.configureWithPacketsQueue(_:connectionsQueue:)` 必须早于 `TFIPStack.default()`。
+- `TFIPStack` 是 neutral runtime 上的兼容 TCP adapter，不是可多实例化的 stack。
+- `TFGlobalScheduler.configureWithPacketsQueue(_:connectionsQueue:)` 必须早于 `TunForgeLwIPRuntime.default()` / `TFIPStack.default()`。
 - `start` / `stop` / `inputPacket` 必须在 `packetsQueue` 调用。
-- `outboundHandler` 从 lwIP output path 同步观察 pbuf 内容，并以 copied `Data`/`NSData` 交给 host；TunForge 不拥有 TUN 写入策略。
+- `outboundHandler` 代理到 neutral runtime；runtime 从 lwIP output path 同步观察 pbuf 内容，并以 copied `Data`/`NSData` 交给 host；TunForge 不拥有 TUN 写入策略。
 - `didAcceptNewTCPConnection` 的 handler 必须 exactly once。当前 `accept == false` 会 abort；`accept == true` 只表示 host 接收该对象，真正激活仍由 host 调 `markActive()` 完成。
 
 ### `TFTCPConnection`
@@ -107,12 +116,13 @@ TUN device
 ### P0：契约收敛
 
 - [x] **修复队列 specific key 绑定缺口**：`configureWithPacketsQueue:connectionsQueue:` 现在调用 `TFBindQueueSpecific` 绑定 packets/connections key，`tf_on_specific_queue()`、`TF_ASSERT_ON_PACKETS_QUEUE()` 与 `tf_perform_sync/async` 的“已在队列上”快路径恢复正常；新增 `TFGlobalSchedulerTests` 覆盖 key 绑定与同队列再次 sync 不死锁。
-- [x] **统一 `OutboundHandler` 同步契约**：`TFIPStack.h` 已改为“同步、运行在 `packetsQueue`/lwIP output path，host 不得阻塞或做重活”。
+- [x] **统一 `OutboundHandler` 同步契约**：`TunForgeLwIPRuntime.h` 定义为“同步、运行在 serial lwIP output path，host 不得阻塞或做重活”；`TFIPStack` 保留兼容代理属性。
 - [x] **accept handler exactly-once**：`tunforge_accept` 现在用 `packetsQueue` 上的 `handlerConsumed` 标志保证只生效一次，重复调用记录 warn 并忽略。
 - [x] **统一 accept / `markActive()` 双阶段语义**：`handler(YES)` 定义为 ownership hand-off（不激活），`handler(NO)` reject/abort，真正激活由 `markActive()` 完成，未激活会在 New-state timeout 后 abort；`TFTCPAcceptHandler` / 协议注释 / `markActive` 注释 / README 已统一。
 - [x] **New 态自持有 / accept drop 不泄漏 backlog**：`TFTCPConnection` 在 New 态通过 `acceptPhaseRetain` 自持有，直到 `markActive` / `terminate`；`tf_tcp_poll` 在 ObjC wrapper 已消失时 abort PCB。回归：`testAccept_hostDropsConnectionWithoutHandler_newRetainKeepsAliveUntilTimeout`。
 - [x] **zero-copy completion once-guard**：`onReadableBytes` completion 重复调用会 warn 并忽略，避免 double `pbuf_free`。
 - [x] 给所有 mutating public API 补齐“必须在 `packetsQueue` 调用”的头文件注释，明确 API 不会自动 hop，避免 Swift/host 侧误以为它们是线程安全入口。
+- [x] 提取 opaque `TunForgeLwIPRuntime`：只拥有 init/netif/timer/raw I/O/serialization；`TFIPStack` 降为 TCP adapter 并保留兼容 API；direct runtime x10 start/stop 与 nested sync 有回归。
 - [ ] 固化 zero-copy receive 契约文档：何时 `acknowledgeDeliveredBytes`、completion 与 ACK 顺序、欠 ACK 行为。
 - [ ] 明确 `TFGlobalScheduler` 配置生命周期：配置一次、不可重配、测试/多 suite 场景如何隔离。
 - [ ] **Release 构建队列亲和**：`TF_ASSERT_ON_PACKETS_QUEUE()` 目前仅 DEBUG 生效；需决定是否在 Release 保留 assert / 降级为日志。

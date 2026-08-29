@@ -14,5 +14,6 @@
 #import "TFTCPConnection.h"
 #import "TFTCPConnectionInfo.h"
 #import "TFTunForgeLog.h"
+#import "TunForgeLwIPRuntime.h"
 
 #endif /* TUNFORGECORE_H */
