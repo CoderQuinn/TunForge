@@ -39,6 +39,8 @@ Tests/
     TFGlobalSchedulerTests.m
     TFIPStackAcceptTests.m
     TFIPStackLifecycleTests.m
+    TFTCPConnectionTestingAPI.h       # test-bundle-only declarations
+    TFTCPConnectionTestingSupport.m   # test-bundle-only private bridge
     TFTCPConnectionPublicAPITests*.m   # principal + categories
   TunForgeTests/              # Swift XCTest — facade only
     TunForgeSwiftSurfaceTests.swift
@@ -66,9 +68,14 @@ Tests/
 
 ## 5. Testing hooks policy
 
-- `TFTCPConnectionTestingAPI.h` and harnesses under `Sources/TunForgeCore/` are **test-only unstable hooks**, not public API.
-- Prefer hooks that stay in the same compilation unit as private state (poll / New-timeout / inflight ACK / listen port).
-- Do not import lwIP private headers from the test target unless required for packet helpers; prefer Core-exported testing entry points.
+- `TFTCPConnectionTestingAPI.h` and `TFTCPConnectionTestingSupport.m` live under
+  `Tests/TunForgeCoreTests/` and are compiled only into the test bundle. They are **test-only
+  unstable support**, not public API.
+- Production sources must not export testing symbols or import lwIP private headers solely to
+  support tests. Release `TunForgeCore` builds should contain no `TFTCPConnectionTesting*` or
+  `TFIPStackTesting*` symbols.
+- Keep the test-bundle bridge narrow: use private Objective-C accessors only for state observation,
+  and exercise the callbacks registered on the real PCB for receive and poll behavior.
 
 ---
 

@@ -81,8 +81,10 @@ TUN device
 
 ### Testing API
 
-- `TFTCPConnectionTestingAPI.h` 只服务 `TunForgeCoreTests`，不是 supported public API。
-- 测试 hook 必须继续留在 core compilation unit 附近，避免 test bundle 直接依赖 lwIP private PCB 细节。
+- `TFTCPConnectionTestingAPI.h` 与 `TFTCPConnectionTestingSupport.m` 只存在于
+  `Tests/TunForgeCoreTests/` 并仅编入 test bundle，不是 supported public API。
+- production `TunForgeCore` 不导出测试符号，也不为测试引入 lwIP private headers；test support
+  只通过窄化的 private accessor 观察状态，并驱动真实 PCB 已注册的 receive / poll callback。
 
 ---
 
@@ -121,7 +123,8 @@ TUN device
 - [x] 增加 `TFIPStack` accept-path 测试：delegate 在 `connectionsQueue`、handler exactly once、reject abort、accept 后必须 `markActive`、New-state timeout、host drop + retain（`TFIPStackAcceptTests`）。
 - [x] 增加队列契约测试：connection callbacks 不在 `connectionsQueue`/`packetsQueue`；scheduler nested sync / async fast-path。
 - [x] 增加 receive window 测试：partial ACK / over ACK clamp、double completion safe、inbound before `markActive` → `ERR_MEM`。
-- [ ] 拆清 Swift Testing 与 XCTest 混跑问题；保持 `TunForgeCoreTests` 可稳定 `swift test`。
+- [x] 拆清 Swift Testing 与 XCTest 混跑问题：两个 test target 均统一为 XCTest，
+  `TunForgeCoreTests` 可稳定由 `swift test` 与独立 CI runner 执行。
 - [x] 为 `TFIPStack.start/stop` 建回归测试：`TFIPStackLifecycleTests`（stop/start restore listener、double start idempotent、restart 后 accept）。
 - [ ] 增加 `inboundDisabled → enable` 后 lwIP `refused_data` 重试的集成测试（当前 inbound-disabled 测试自行 `pbuf_free`）。
 
