@@ -84,6 +84,7 @@ Tests/
 | Change area | Must add / update |
 |-------------|-------------------|
 | Scheduler / queue keys | `TFGlobalSchedulerTests` |
+| Neutral lwIP runtime ownership / restart | `TunForgeLwIPRuntimeTests` |
 | Accept / `markActive` / backlog | `TFIPStackAcceptTests` (+ packet helpers if handshake changes) |
 | `start` / `stop` | `TFIPStackLifecycleTests` (must restore stack) |
 | Inbound / ACK / completion | `TFTCPConnectionPublicAPITests+Inbound` |
@@ -109,11 +110,17 @@ Document material contract changes in `docs/ARCHITECTURE.md` and, for release re
 
 # Custom XCTest filter (backwards-compatible)
 ./Scripts/run-tests.sh TunForgeSwiftSurface
+
+# Unsigned generic-iOS compile gate (both public products)
+xcodebuild -quiet -scheme TunForgeCore -destination 'generic/platform=iOS' \
+  -derivedDataPath .build/ios-derived CODE_SIGNING_ALLOWED=NO build
+xcodebuild -quiet -scheme TunForge -destination 'generic/platform=iOS' \
+  -derivedDataPath .build/ios-derived CODE_SIGNING_ALLOWED=NO build
 ```
 
 CI workflows:
 
-- **CI** — Debug + Release builds (`.github/workflows/ci.yml`)
+- **CI** — macOS Debug + Release builds and unsigned generic-iOS builds for both public products (`.github/workflows/ci.yml`)
 - **Lint** — clang-format + shellcheck (`.github/workflows/format-style.yml`)
 - **Unit Tests** — `./Scripts/run-tests.sh unit` (`.github/workflows/unit-tests.yml`)
 - **Regression Tests** — `./Scripts/run-tests.sh regression` (`.github/workflows/regression-tests.yml`)

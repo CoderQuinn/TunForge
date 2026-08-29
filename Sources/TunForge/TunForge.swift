@@ -10,6 +10,7 @@ import TunForgeCore
 
 // Swift-friendly surface over TunForgeCore.
 public typealias TFIPStackSwift = TFIPStack
+public typealias TunForgeLwIPRuntimeSwift = TunForgeLwIPRuntime
 public typealias TFTCPConnectionSwift = TFTCPConnection
 public typealias TFTCPConnectionInfoSwift = TFTCPConnectionInfo
 public typealias TFTCPConnectionTerminationReasonSwift = TFTCPConnectionTerminationReason
@@ -19,6 +20,20 @@ public extension TFIPStack {
     static var shared: TFIPStack { TFIPStack.default() }
 
     /// Set outbound handler with Swift-native types.
+    func setOutboundHandler(_ handler: @escaping (_ packets: [Data], _ families: [Int32]) -> Void) {
+        outboundHandler = { packets, families in
+            let swiftPackets: [Data] = packets
+            let swiftFamilies: [Int32] = families.compactMap { $0.int32Value }
+            handler(swiftPackets, swiftFamilies)
+        }
+    }
+}
+
+public extension TunForgeLwIPRuntime {
+    /// Shared process-global neutral lwIP runtime.
+    static var shared: TunForgeLwIPRuntime { TunForgeLwIPRuntime.default() }
+
+    /// Set raw packet output with Swift-native types.
     func setOutboundHandler(_ handler: @escaping (_ packets: [Data], _ families: [Int32]) -> Void) {
         outboundHandler = { packets, families in
             let swiftPackets: [Data] = packets

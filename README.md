@@ -61,6 +61,7 @@ TunForge is not a proxy, protocol router, or VPN product by itself.
 ## Core Capabilities
 
 - Transparent TCP interception from TUN (lwIP raw API)
+- Opaque neutral lwIP runtime for init, netif, timers, raw packet I/O, and serialization
 - Per-connection lifecycle state machine
 - Backpressure-aware receive gating
 - Zero-copy receive path (`onReadableBytes`)
@@ -139,7 +140,10 @@ TunForge is a foundation layer, not a feature layer.
 
 ## Quick Usage Notes
 
-- Configure `TFGlobalScheduler` before accessing `TFIPStack`. The host typically maps `packetsQueue` and `connectionsQueue` onto executors that match its runtime (for example a SwiftNIO `EventLoop`–bound dispatch queue): lwIP and `TFTCPConnection` state stay on `packetsQueue`; stack-level delegate work (e.g. `didAcceptNewTCPConnection`) uses `connectionsQueue`.
+- Configure `TFGlobalScheduler` before accessing `TunForgeLwIPRuntime` or `TFIPStack`. The host typically maps `packetsQueue` and `connectionsQueue` onto executors that match its runtime (for example a SwiftNIO `EventLoop`–bound dispatch queue): lwIP and `TFTCPConnection` state stay on `packetsQueue`; stack-level delegate work (e.g. `didAcceptNewTCPConnection`) uses `connectionsQueue`.
+- `TunForgeLwIPRuntime` owns only process-global lwIP init, netif, timers, raw packet input/output, and the serialized executor facade. It deliberately has no policy, socket, UDP-session, tunnel, DNS, or product state.
+- `TFIPStack` is the compatibility TCP adapter over that runtime; existing hosts can keep using its `start` / `stop` / `inputPacket` surface.
+- Lifecycle ownership is exclusive: a host using `TFIPStack` must start and stop through that adapter rather than independently controlling `TunForgeLwIPRuntime`.
 - All lwIP interaction runs on `packetsQueue`.
 - `TFTCPConnection` property callbacks run on a **per-connection serial** GCD queue (distinct connections run in parallel). The injected `connectionsQueue` is only for stack-level work (e.g. `didAcceptNewTCPConnection`), not for those per-connection property callbacks.
 - In `didAcceptNewTCPConnection`, call the accept handler exactly once: `handler(true)` hands off ownership (it does **not** activate), `handler(false)` rejects.

@@ -43,7 +43,7 @@ static const u32_t kTCPNewStateRejectTimeoutMs = 10000; // 10s
 
 #pragma mark - Helpers
 
-static inline NSString *tf_ipv4_to_string(uint32 addr_network_order) {
+static inline NSString *tf_ipv4_to_string(uint32_t addr_network_order) {
     struct in_addr addr;
     addr.s_addr = addr_network_order;
     const char *cStr = inet_ntoa(addr);

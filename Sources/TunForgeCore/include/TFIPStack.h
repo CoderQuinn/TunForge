@@ -6,21 +6,13 @@
 //
 
 #import <Foundation/Foundation.h>
+#import "TunForgeLwIPRuntime.h"
 
 @class TFTCPConnectionInfo, TFTCPConnection;
 
 NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark - Outbound
-/// Outbound raw IP packet handler.
-///
-/// Invoked **synchronously** from the lwIP output path while running on
-/// `TFGlobalScheduler.packetsQueue`. The handler MUST return quickly and MUST NOT block,
-/// perform heavy work, or re-enter TunForge synchronously: doing so stalls lwIP timers and
-/// every other connection. If the host needs to do expensive work, copy the packets and hop
-/// to its own executor.
-typedef void (^OutboundHandler)(NSArray<NSData *> *packets, NSArray<NSNumber *> *families);
-
 /// Accept decision for an inbound TCP connection.
 ///
 /// - `accept == YES`: ownership hand-off only. The connection is NOT activated yet; the host
@@ -56,6 +48,10 @@ typedef void (^TFTCPAcceptHandler)(BOOL accept);
 /// - TFIPStack is NOT a per-instance TCP/IP stack.
 /// - Multiple active stacks are forbidden.
 /// - Violating this is a programmer error.
+/// - The neutral `TunForgeLwIPRuntime` owns init/netif/timer/raw I/O; this adapter owns only
+///   TunForge TCP listener/accept semantics and preserves the legacy API.
+/// - While using this adapter, lifecycle calls must go through `TFIPStack`; do not independently
+///   start or stop its underlying `TunForgeLwIPRuntime`.
 /// - Mutable properties and mutating methods do not hop queues automatically; the host must
 ///   access them on `TFGlobalScheduler.packetsQueue`.
 @interface TFIPStack : NSObject

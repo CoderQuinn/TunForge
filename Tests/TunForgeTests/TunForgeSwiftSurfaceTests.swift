@@ -20,6 +20,7 @@ final class TunForgeSwiftSurfaceTests: XCTestCase {
     func testSwiftTypealiasesResolve() {
         // Compile-time / metatype wiring for the public Swift surface.
         XCTAssertTrue(TFIPStackSwift.self == TFIPStack.self)
+        XCTAssertTrue(TunForgeLwIPRuntimeSwift.self == TunForgeLwIPRuntime.self)
         XCTAssertTrue(TFTCPConnectionSwift.self == TFTCPConnection.self)
         XCTAssertTrue(TFTCPConnectionInfoSwift.self == TFTCPConnectionInfo.self)
         XCTAssertTrue(

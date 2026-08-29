@@ -66,3 +66,41 @@ jobs:
           echo "- Configuration: ${{ matrix.configuration }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Build: TunForgeCore + TunForge" >> "$GITHUB_STEP_SUMMARY"
           echo "- Tests: enforced by the Unit Tests and Regression Tests workflows" >> "$GITHUB_STEP_SUMMARY"
+
+  ios-build:
+    name: Build (iOS)
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: "16.4"
+
+      - name: Build public products for generic iOS device
+        run: |
+          set -euo pipefail
+          xcodebuild -quiet \
+            -scheme TunForgeCore \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath .build/ios-derived \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+          xcodebuild -quiet \
+            -scheme TunForge \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath .build/ios-derived \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Summarize
+        if: always()
+        run: |
+          echo "### TunForge CI" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Platform: generic iOS device" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Build: TunForgeCore + TunForge" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Code signing: disabled" >> "$GITHUB_STEP_SUMMARY"
