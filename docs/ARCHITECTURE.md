@@ -126,7 +126,7 @@ TUN device
 - [x] 拆清 Swift Testing 与 XCTest 混跑问题：两个 test target 均统一为 XCTest，
   `TunForgeCoreTests` 可稳定由 `swift test` 与独立 CI runner 执行。
 - [x] 为 `TFIPStack.start/stop` 建回归测试：`TFIPStackLifecycleTests`（stop/start restore listener、double start idempotent、restart 后 accept）。
-- [ ] 增加 `inboundDisabled → enable` 后 lwIP `refused_data` 重试的集成测试（当前 inbound-disabled 测试自行 `pbuf_free`）。
+- [x] 增加 `inboundDisabled → enable` 后 lwIP `refused_data` 重试的集成测试：真实 `inputPacket` 路径验证首包保留、后续数据不追加、重新开启后首包交付及后续重传交付。
 
 ### P2：后续架构演进
 

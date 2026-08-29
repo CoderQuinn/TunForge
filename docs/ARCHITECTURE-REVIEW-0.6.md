@@ -156,7 +156,6 @@ Rules:
 | R4 | `nonatomic` callback properties / `alive` cross-queue races | P2 | ARM often “works”; still a C model race |
 | R5 | pbuf pool pressure on `inputPacket` | P2 | TODO in code |
 | R6 | IPv6 / info naming clarity | P2 | IPv4-only opts today |
-| R7 | `inboundDisabled → enable` refused_data retry integration | P1 | Unit tests free pbuf themselves today |
 
 Track in [`ARCHITECTURE.md`](./ARCHITECTURE.md) §5.
 

@@ -294,6 +294,116 @@ static uint32_t TFIPAddr(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
     }];
 }
 
+- (void)testInboundDisabled_realInputBoundsRefusedDataAndRetriesAfterEnable {
+    XCTestExpectation *acceptExp = [self expectationWithDescription:@"accept"];
+    XCTestExpectation *firstDeliveryExp = [self expectationWithDescription:@"first delivery"];
+    XCTestExpectation *secondDeliveryExp = [self expectationWithDescription:@"retransmitted delivery"];
+    firstDeliveryExp.assertForOverFulfill = YES;
+    secondDeliveryExp.assertForOverFulfill = YES;
+
+    const uint32_t peer = TFIPAddr(198, 18, 0, 2);
+    const uint32_t local = TFIPAddr(198, 18, 0, 1);
+    const uint16_t peerPort = 45333;
+    const uint32_t peerISN = 5000;
+    NSData *firstPayload = [@"slow" dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *secondPayload = [@"more" dataUsingEncoding:NSUTF8StringEncoding];
+
+    __block TFTCPConnection *connRef = nil;
+    __block NSInteger deliveryCount = 0;
+    [self driveHandshakeFromPeerPort:peerPort
+                             peerISN:peerISN
+                     expectingAccept:^(TFTCPConnection *conn, TFTCPAcceptHandler handler) {
+                         connRef = conn;
+                         conn.onReadableBytes = ^(TFTCPConnection *c,
+                                                  const TFBytesSlice *slices,
+                                                  NSUInteger sliceCount,
+                                                  NSUInteger totalBytesLength,
+                                                  TFTCPReceiveGateCompletion completion) {
+                             NSMutableData *received =
+                                 [NSMutableData dataWithCapacity:totalBytesLength];
+                             for (NSUInteger index = 0; index < sliceCount; index++) {
+                                 [received appendBytes:slices[index].bytes
+                                                length:slices[index].length];
+                             }
+
+                             deliveryCount++;
+                             if (deliveryCount == 1) {
+                                 XCTAssertEqualObjects(received, firstPayload);
+                                 [firstDeliveryExp fulfill];
+                             } else if (deliveryCount == 2) {
+                                 XCTAssertEqualObjects(received, secondPayload);
+                                 [secondDeliveryExp fulfill];
+                             } else {
+                                 XCTFail(@"unexpected extra inbound delivery");
+                             }
+
+                             completion();
+                             [TFGlobalScheduler.shared packetsPerformSync:^{
+                                 [c acknowledgeDeliveredBytes:totalBytesLength];
+                             }];
+                         };
+                         handler(YES);
+                         [TFGlobalScheduler.shared packetsPerformSync:^{
+                             [conn markActive];
+                             // Keep the lifecycle gate disabled while the first two data
+                             // segments enter the real input path.
+                             [conn setInboundDeliveryEnabled:NO];
+                         }];
+                     }
+                         expectation:acceptExp];
+    [self waitForExpectations:@[ acceptExp ] timeout:3];
+
+    uint32_t synAckSeq = 0;
+    uint16_t listenPort = 0;
+    for (NSData *packet in [self outboundPacketsSnapshot]) {
+        uint16_t destinationPort = 0;
+        uint8_t flags = 0;
+        if (TFIPPacketParseTCP(packet, NULL, NULL, &listenPort, &destinationPort, &synAckSeq,
+                              NULL, &flags) &&
+            destinationPort == peerPort && (flags & kTFIPTCPFlagSYN) &&
+            (flags & kTFIPTCPFlagACK)) {
+            break;
+        }
+        listenPort = 0;
+    }
+    XCTAssertGreaterThan(listenPort, 0);
+
+    NSData *firstSegment = TFIPPacketMakeTCPSegmentWithPayload(
+        peer, local, peerPort, listenPort, peerISN + 1, synAckSeq + 1,
+        kTFIPTCPFlagACK | kTFIPTCPFlagPSH, 65535, firstPayload);
+    NSData *secondSegment = TFIPPacketMakeTCPSegmentWithPayload(
+        peer, local, peerPort, listenPort, peerISN + 1 + (uint32_t)firstPayload.length,
+        synAckSeq + 1, kTFIPTCPFlagACK | kTFIPTCPFlagPSH, 65535, secondPayload);
+
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        [[TFIPStack defaultStack] inputPacket:firstSegment];
+        XCTAssertEqual(TFTCPConnectionTestingRefusedDataLength(connRef), firstPayload.length);
+        XCTAssertEqual(deliveryCount, 0);
+
+        // lwIP retries the retained first payload, sees the gate is still closed, and drops
+        // the new data segment for TCP retransmission instead of growing refused_data.
+        [[TFIPStack defaultStack] inputPacket:secondSegment];
+        XCTAssertEqual(TFTCPConnectionTestingRefusedDataLength(connRef), firstPayload.length);
+        XCTAssertEqual(deliveryCount, 0);
+
+        [connRef setInboundDeliveryEnabled:YES];
+        XCTAssertEqual(TFTCPConnectionTestingRetryRefusedData(connRef), ERR_OK);
+        XCTAssertEqual(TFTCPConnectionTestingRefusedDataLength(connRef), 0UL);
+    }];
+    [self waitForExpectations:@[ firstDeliveryExp ] timeout:3];
+
+    // Model the peer retransmission after the first refused payload has been accepted.
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        [[TFIPStack defaultStack] inputPacket:secondSegment];
+    }];
+    [self waitForExpectations:@[ secondDeliveryExp ] timeout:3];
+    XCTAssertEqual(deliveryCount, 2);
+
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        [connRef abort];
+    }];
+}
+
 - (void)testAccept_withoutMarkActive_newStateTimeoutAborts {
     XCTestExpectation *acceptExp = [self expectationWithDescription:@"accept"];
     XCTestExpectation *termExp = [self expectationWithDescription:@"newTimeout"];
