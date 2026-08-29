@@ -14,7 +14,8 @@ struct pbuf;
 struct tcp_pcb;
 
 /// Allocates a synthetic `ESTABLISHED` PCB for unit tests. Must run on `packetsQueue`.
-struct tcp_pcb *_Nullable TFTCPConnectionTestingCreateSyntheticEstablishedPCB(void);
+FOUNDATION_EXPORT struct tcp_pcb *_Nullable TFTCPConnectionTestingCreateSyntheticEstablishedPCB(
+    void);
 
 /// Mirrors lwIP `tcp_recv` with `err == ERR_OK` (synthetic inbound data). Must run on `packetsQueue`.
 FOUNDATION_EXPORT err_t TFTCPConnectionTestingDeliverInboundPbuf(TFTCPConnection *_Nonnull conn,

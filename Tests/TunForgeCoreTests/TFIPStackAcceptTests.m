@@ -66,6 +66,20 @@ static uint32_t TFIPAddr(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
     }];
 }
 
+- (NSArray<NSData *> *)outboundPacketsSnapshot {
+    __block NSArray<NSData *> *snapshot = nil;
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        snapshot = [self.outboundPackets copy];
+    }];
+    return snapshot;
+}
+
+- (void)clearOutboundPackets {
+    [TFGlobalScheduler.shared packetsPerformSync:^{
+        [self.outboundPackets removeAllObjects];
+    }];
+}
+
 - (void)tearDown {
     [TFGlobalScheduler.shared packetsPerformSync:^{
         TFIPStack *stack = [TFIPStack defaultStack];
@@ -104,7 +118,7 @@ static uint32_t TFIPAddr(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
     // already be present after the sync block — but keep a short poll for safety).
     NSData *synAck = nil;
     for (int i = 0; i < 20 && !synAck; i++) {
-        for (NSData *p in self.outboundPackets) {
+        for (NSData *p in [self outboundPacketsSnapshot]) {
             uint8_t flags = 0;
             if (TFIPPacketParseTCP(p, NULL, NULL, NULL, NULL, NULL, NULL, &flags) &&
                 (flags & kTFIPTCPFlagSYN) && (flags & kTFIPTCPFlagACK)) {
@@ -335,7 +349,7 @@ static uint32_t TFIPAddr(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
     const uint32_t peerISN = 3000;
 
     __block uint16_t listenPort = 0;
-    [self.outboundPackets removeAllObjects];
+    [self clearOutboundPackets];
     [TFGlobalScheduler.shared packetsPerformSync:^{
         listenPort = TFIPStackTestingListenPort();
         XCTAssertGreaterThan(listenPort, 0);
@@ -346,7 +360,7 @@ static uint32_t TFIPAddr(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
 
     NSData *synAck = nil;
     for (int i = 0; i < 20 && !synAck; i++) {
-        for (NSData *p in self.outboundPackets) {
+        for (NSData *p in [self outboundPacketsSnapshot]) {
             uint8_t flags = 0;
             if (TFIPPacketParseTCP(p, NULL, NULL, NULL, NULL, NULL, NULL, &flags) &&
                 (flags & kTFIPTCPFlagSYN) && (flags & kTFIPTCPFlagACK)) {
