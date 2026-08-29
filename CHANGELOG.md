@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.6.0] — 2026-05-10
+
+### Changed
+
+- `TFTCPConnection` property callbacks are scheduled on a **per-connection serial** GCD queue so different connections can run callbacks in parallel while preserving per-connection ordering. `TFGlobalScheduler.connectionsQueue` remains for stack-level delegates (e.g. TCP accept).
+- Documentation: clarify that `packetsQueue` / `connectionsQueue` are host-injected for executor alignment (e.g. SwiftNIO event loops); README architecture and integration notes use generic “host / embedding application” wording.
+- Clarify TCP accept as a two-phase contract: `handler(YES)` is ownership hand-off only; host must call `markActive` to establish. `OutboundHandler` is documented as synchronous on `packetsQueue`.
+
+### Fixed
+
+- Bind `TFGlobalScheduler` queue-specific keys on configure so packets/connections affinity checks and re-entrant `performSync` fast paths work.
+- Enforce accept-handler exactly-once on `packetsQueue`.
+- Keep New-state connections alive (`acceptPhaseRetain`) and reclaim orphaned PCBs on poll so dropping an accept reference cannot leak listen backlog.
+- Guard `onReadableBytes` completion against double-free.
+- Make `TFIPStack.start` idempotent when already running; abort via connection wrapper when accept has no delegate.
+- Detach lwIP callbacks on `gracefulClose` success before clearing the PCB pointer.
+
+### Tests
+
+- Expand `TunForgeCoreTests`: scheduler keys, full SYN accept path, New-timeout / host-drop reclaim, receive ACK clamp / double completion, stack stop/start restart.
+- Architecture review: `docs/ARCHITECTURE-REVIEW-0.6.md`.
+
+### Notes
+
+- XCTest coverage for accept / scheduler / inbound credit is substantially broader than the initial 0.6.0 cut; Release builds still do not enforce packets-queue asserts (DEBUG-only).
+
 ## [0.5.1] — 2026-01-25
 
 ### Changed
@@ -56,9 +82,9 @@
 
 - Public API/integration contract updated (0.1.x -> 0.2.x)
 - `TFGlobalScheduler` must be configured once **before** the first `TFIPStack.defaultStack()` acquire
-- All lwIP-facing calls (`start/stop/inputPacket`, and `TFTCPConnection.markActive/setReceiveEnabled`) must run on `TFGlobalScheduler.packetsQueue`
+- All lwIP-facing calls (`start/stop/inputPacket`, and `TFTCPConnection.markActive/setInboundDeliveryEnabled`) must run on `TFGlobalScheduler.packetsQueue`
 - `TFIPStackDelegate.didAcceptNewTCPConnection(...handler:)` is invoked on `connectionsQueue` and the `handler` must be called exactly once
-- Accepted connections default to receive paused; upper layer must explicitly `markActive()` and `setReceiveEnabled(true)` when ready
+- Accepted connections default to receive paused; upper layer must explicitly `markActive()` and `setInboundDeliveryEnabled(true)` when ready
 
 ### Packaging & Docs
 

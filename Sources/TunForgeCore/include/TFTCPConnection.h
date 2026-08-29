@@ -12,7 +12,14 @@
  Peer   = App side (TUN client)
 
  Note:
- lwIP only handles communication with the App side (Peer), and does not interact with or manage the real server's TCP lifecycle, which is fully handled by upper layers (e.g. NetForge).
+ lwIP only handles communication with the App side (Peer), and does not interact with or manage the real server's TCP lifecycle, which is fully handled by upper layers outside TunForge.
+
+ Concurrency:
+ Property callbacks (onActivated, onReadable*, onWritableChanged, onSentBytes, onReadEOF,
+ onTerminated) run on a dedicated serial GCD queue per TFTCPConnection instance. Different
+ connections may execute callbacks in parallel; ordering is defined only per connection.
+ Mutating APIs (markActive, write*, close paths, etc.) must still run on TFGlobalScheduler's
+ packetsQueue and do not hop there automatically.
  */
 
 #import <Foundation/Foundation.h>
@@ -73,8 +80,7 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 @property (nonatomic, assign, readonly) BOOL writable;
 
 /// Fired exactly once after the TCP connection becomes active.
-/// “Inbound delivery is gated via setInboundDeliveryEnabled, typically driven by Flow backpressure.
-/// to allow inbound data delivery from lwIP.
+/// Inbound delivery is gated via setInboundDeliveryEnabled:, typically driven by Flow backpressure, before lwIP delivers payloads upward.
 @property (nullable, nonatomic, copy) TFTCPActivatedHandler onActivated;
 
 /// Compatibility path. Will allocate & copy.
@@ -97,37 +103,45 @@ typedef void (^TFTCPTerminatedHandler)(TFTCPConnection *conn,
 /// Termination callback (once).
 @property (nullable, nonatomic, copy) TFTCPTerminatedHandler onTerminated;
 
+/// Internal PCB-backed initializer. Must run on `TFGlobalScheduler.packetsQueue`.
 - (instancetype)initWithTCPPcb:(struct tcp_pcb *)pcb;
 
 - (instancetype)init NS_UNAVAILABLE;
 
 // Marks the connection as active, accepting the lwIP TCP connection
 // and allowing data delivery to upper layers.
+//
+// This is the second phase of accept: after the delegate's accept handler is called with
+// YES (ownership hand-off), the host MUST call -markActive to actually establish the
+// connection and fire onActivated. Until then the connection stays in its New state and
+// will abort on a New-state timeout. Must run on `TFGlobalScheduler.packetsQueue`. Idempotent.
 - (void)markActive;
 
 /// Controls whether inbound payloads from app are delivered to upper layers.
 /// Flow-control gate only; does not affect TCP state or send FIN.
+/// Must run on `TFGlobalScheduler.packetsQueue`.
 - (void)setInboundDeliveryEnabled:(BOOL)enabled;
 
 /// Credits lwIP receive window after upper layer has consumed inbound bytes.
+/// Must run on `TFGlobalScheduler.packetsQueue`.
 - (void)acknowledgeDeliveredBytes:(NSUInteger)bytes;
 
 /// Zero-copy style write API.
-/// NOTE:
-// Contract: caller MUST ensure length <= UINT16_MAX, length > 0
+/// Caller MUST ensure `length <= UINT16_MAX` and `length > 0`.
+/// Must run on `TFGlobalScheduler.packetsQueue`.
 - (TFTCPWriteResult)writeBytes:(const void *)bytes length:(NSUInteger)length;
 
-// Writes data to TCP connection, similar to writeBytes, but takes NSData as input.
-// Ensures that data length is within bounds (<= UINT16_MAX).
+/// Writes data to the connection and rejects payloads larger than `UINT16_MAX`.
+/// Must run on `TFGlobalScheduler.packetsQueue`.
 - (TFTCPWriteResult)writeData:(NSData *)data;
 
-/// Half-close (Shut down send side).
+/// Half-closes the send side. Must run on `TFGlobalScheduler.packetsQueue`.
 - (void)shutdownWrite;
 
-// Full close
+/// Gracefully closes the connection. Must run on `TFGlobalScheduler.packetsQueue`.
 - (void)gracefulClose;
 
-/// Force abort (RST/ABRT).
+/// Forces abort (RST/ABRT). Must run on `TFGlobalScheduler.packetsQueue`.
 - (void)abort;
 
 @end

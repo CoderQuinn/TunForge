@@ -87,6 +87,17 @@ static TFIPStack *_stack;
 
     [TFTunForgeLog info:@"TFIPStack start"];
 
+    // Idempotent: a second start without stop must not leak timers. setupLocked already
+    // early-returns when ready, so only the timer path was unsafe before.
+    if (self.ready && self.timer) {
+        [TFTunForgeLog info:@"TFIPStack start ignored (already running)"];
+        return;
+    }
+    if (self.timer) {
+        dispatch_source_cancel(self.timer);
+        self.timer = nil;
+    }
+
     if (!self.stackRef || !self.stackRef.alive) {
         self.stackRef = [[TFObjectRef alloc] initWithObject:self];
     }
@@ -341,21 +352,36 @@ static err_t tunforge_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
 
     id<TFIPStackDelegate> delegate = stack.delegate;
     if (!delegate || ![delegate respondsToSelector:@selector(didAcceptNewTCPConnection:handler:)]) {
-        tcp_abort(newpcb);
+        // Connection already owns the PCB (callbacks / ext-arg). Abort via the wrapper so
+        // backlog + ObjC lifecycle stay consistent.
+        [connection abort];
         return ERR_ABRT;
     }
+
+    // Guard: the accept handler must take effect exactly once. The flag is read/written only
+    // on packetsQueue (serial), so concurrent or repeated host invocations are safe.
+    __block BOOL handlerConsumed = NO;
+    TFTCPAcceptHandler handler = ^(BOOL accept) {
+        [TFGlobalScheduler.shared packetsPerformAsync:^{
+            if (handlerConsumed) {
+                [TFTunForgeLog warn:@"TCP accept handler invoked more than once; ignoring"];
+                return;
+            }
+            handlerConsumed = YES;
+
+            // accept == YES is only ownership hand-off: the host MUST still call
+            // -markActive to establish the connection (otherwise it aborts on New-state
+            // timeout). accept == NO rejects immediately.
+            if (!accept) {
+                [connection abort];
+            }
+        }];
+    };
 
     weakify(stack);
     [TFGlobalScheduler.shared connectionsPerformAsync:^{
         strongify(stack);
-        [delegate didAcceptNewTCPConnection:connection
-                                    handler:^(BOOL accept) {
-                                        [TFGlobalScheduler.shared packetsPerformAsync:^{
-                                            if (!accept) {
-                                                [connection abort];
-                                            }
-                                        }];
-                                    }];
+        [delegate didAcceptNewTCPConnection:connection handler:handler];
     }];
 
     return ERR_OK;

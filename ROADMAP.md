@@ -10,7 +10,7 @@ APIs and timelines may evolve.
 Goal: finalize the execution model while keeping lwIP strictly serialized.
 
 - `packetsQueue` remains strictly serialized
-- connection callbacks become parallelized
+- per-`TFTCPConnection` callback queues are serial; different connections run callbacks in parallel
 - `TFTCPConnection` internal state remains `packetsQueue`-owned
 - callback re-entrancy and lifecycle contracts documented
 - callback hop paths minimized for performance
