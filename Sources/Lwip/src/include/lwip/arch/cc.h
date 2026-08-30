@@ -4,6 +4,15 @@
 
 #include "tf_lwip_log.h"
 
+/*
+ * Darwin already provides the BSD byte-order names through its system SDK.
+ * Keep lwIP's explicitly-prefixed lwip_* functions while avoiding a second
+ * public definition of htons, ntohs, htonl, and ntohl.
+ */
+#if defined(__APPLE__)
+#define LWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS 1
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -35,4 +44,3 @@ void lwip_platform_assert(const char *expr, const char *file, int line);
 #endif
 
 #endif /* LWIP_ARCH_CC_H */
-

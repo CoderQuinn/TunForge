@@ -6,7 +6,9 @@
  * Package.swift defines LWIP_IOS or LWIP_MACOS via cSettings.
  *
  * TunForge policy:
- *  - Keep platform sizing / tuning in lwipopts_ios.h / lwipopts_macos.h
+ *  - Keep platform sizing / tuning in the private custom headers
+ *    lwipopts_ios.h / lwipopts_macos.h so the public Clang module does not
+ *    import both configurations through its umbrella directory
  *  - Keep TunForge patch toggles, hooks, and markers HERE
  *  - Keep lwIP core semantic macros defined exactly once
  *  - Avoid deep buffering in Release by default (Balanced tier)
@@ -171,4 +173,3 @@
 #endif
 
 #endif /* LWIP_HDR_LWIPOPTS_H */
-
