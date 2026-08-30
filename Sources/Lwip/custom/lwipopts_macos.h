@@ -1,5 +1,5 @@
 //  lwipopts_macos.h
-//  TunForge
+//  TunForge (private platform tuning)
 #ifndef LWIPOPTS_MACOS_H
 #define LWIPOPTS_MACOS_H
 
@@ -62,4 +62,3 @@
 #define TCP_TTL          64                  // Default Time-To-Live for TCP packets
 
 #endif /* LWIPOPTS_MACOS_H */
-

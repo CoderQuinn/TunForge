@@ -37,6 +37,11 @@
 #ifndef LWIP_HDR_ARCH_H
 #define LWIP_HDR_ARCH_H
 
+/* TunForge Darwin port: use the SDK's canonical endian macro definitions. */
+#if defined(__APPLE__)
+#include <machine/endian.h>
+#endif
+
 #ifndef LITTLE_ENDIAN
 #define LITTLE_ENDIAN 1234
 #endif

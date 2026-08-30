@@ -1,5 +1,5 @@
 //  lwipopts_ios.h
-//  TunForge
+//  TunForge (private platform tuning)
 #ifndef LWIPOPTS_IOS_H
 #define LWIPOPTS_IOS_H
 
