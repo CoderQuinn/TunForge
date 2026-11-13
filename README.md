@@ -206,7 +206,10 @@ a small, predictable TCP data plane.
 
 ## License
 
-Apache License 2.0
+First-party material is licensed under **MPL-2.0**; see [LICENSE](LICENSE).
+See [COPYRIGHT.md](COPYRIGHT.md) for the exact scope, third-party exclusions,
+retained historical grants and copyright notices. No commercial-license or
+store-distribution exception is granted here.
 
 > TunForge is a foundation layer.
 > Higher-level routing and protocol logic live outside this repository
